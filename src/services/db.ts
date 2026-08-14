@@ -1,4 +1,5 @@
 // Tipos de Datos Fuertes para el Ecosistema Mixo
+import { supabase, isSupabaseConfigured } from './supabase';
 
 export interface Ingrediente {
   id: string;
@@ -149,7 +150,7 @@ const INGREDIENTES_INICIALES: Ingrediente[] = [
     ultimaActualizacion: new Date().toISOString(),
     stockActual: 1500,
     stockMinimo: 5000,
-    fechaVencimiento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), // vence en 2 días
+    fechaVencimiento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
     conservacion: "refrigerado",
     perecibilidad: "alta",
     diasVidaUtil: 7
@@ -175,7 +176,7 @@ const INGREDIENTES_INICIALES: Ingrediente[] = [
     ultimaActualizacion: new Date().toISOString(),
     stockActual: 5000,
     stockMinimo: 10000,
-    fechaVencimiento: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), // vencido hace 1 día
+    fechaVencimiento: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
     conservacion: "secos",
     perecibilidad: "baja",
     diasVidaUtil: 365
@@ -188,7 +189,7 @@ const INGREDIENTES_INICIALES: Ingrediente[] = [
     ultimaActualizacion: new Date().toISOString(),
     stockActual: 4000,
     stockMinimo: 2000,
-    fechaVencimiento: new Date(Date.now() + 1.5 * 24 * 60 * 60 * 1000).toISOString(), // vence en 1.5 días
+    fechaVencimiento: new Date(Date.now() + 1.5 * 24 * 60 * 60 * 1000).toISOString(),
     conservacion: "refrigerado",
     perecibilidad: "media",
     diasVidaUtil: 21
@@ -250,86 +251,239 @@ const KEYS = {
   VENTAS: 'mixo_ventas'
 };
 
+// Mapeos Supabase <-> TypeScript
+const mapIngredienteFromDB = (row: any): Ingrediente => ({
+  id: row.id,
+  nombre: row.nombre,
+  unidadReceta: row.unidad_receta,
+  precioActivo: row.precio_activo !== null ? Number(row.precio_activo) : undefined,
+  stockActual: row.stock_actual !== null ? Number(row.stock_actual) : undefined,
+  stockMinimo: row.stock_minimo !== null ? Number(row.stock_minimo) : undefined,
+  fechaVencimiento: row.fecha_vencimiento || undefined,
+  conservacion: row.conservacion || 'secos',
+  perecibilidad: row.perecibilidad || 'media',
+  diasVidaUtil: row.dias_vida_util || undefined,
+  ultimaActualizacion: row.ultima_actualizacion || new Date().toISOString()
+});
+
+const mapIngredienteToDB = (i: Ingrediente) => ({
+  id: i.id,
+  nombre: i.nombre,
+  unidad_receta: i.unidadReceta,
+  precio_activo: i.precioActivo,
+  stock_actual: i.stockActual,
+  stock_minimo: i.stockMinimo,
+  fecha_vencimiento: i.fechaVencimiento,
+  conservacion: i.conservacion,
+  perecibilidad: i.perecibilidad,
+  dias_vida_util: i.diasVidaUtil,
+  ultima_actualizacion: i.ultimaActualizacion || new Date().toISOString()
+});
+
+const mapProveedorFromDB = (row: any): Proveedor => ({
+  id: row.id,
+  nombreComercial: row.nombre_comercial,
+  nit: row.nit || '',
+  contactoNombre: row.contacto_nombre || '',
+  telefono: row.telefono || '',
+  correo: row.correo || ''
+});
+
+const mapProveedorToDB = (p: Proveedor) => ({
+  id: p.id,
+  nombre_comercial: p.nombreComercial,
+  nit: p.nit,
+  contacto_nombre: p.contactoNombre,
+  telefono: p.telefono,
+  correo: p.correo
+});
+
+const mapRecetaFromDB = (row: any): Receta => ({
+  id: row.id,
+  nombre: row.nombre,
+  esSubReceta: Boolean(row.es_sub_receta),
+  codigoIntegracionPOS: row.codigo_integracion_pos || undefined,
+  unidadRendimiento: row.unidad_rendimiento,
+  cantidadRendimiento: Number(row.cantidad_rendimiento) || 1,
+  vidaUtilHoras: row.vida_util_horas ? Number(row.vida_util_horas) : undefined,
+  temperaturaAlmacenado: row.temperatura_almacenado || undefined,
+  alergenos: Array.isArray(row.alergenos) ? row.alergenos : [],
+  ingredientes: Array.isArray(row.ingredientes) ? row.ingredientes : [],
+  pasos: Array.isArray(row.pasos) ? row.pasos : [],
+  tiempoPreparacionTotal: Number(row.tiempo_preparacion_total) || 0,
+  precioVentaMenu: row.precio_venta_menu !== null ? Number(row.precio_venta_menu) : undefined,
+  stockActual: row.stock_actual !== null ? Number(row.stock_actual) : undefined,
+  stockMinimo: row.stock_minimo !== null ? Number(row.stock_minimo) : undefined,
+  modoDescuento: row.modo_descuento || 'explosion_ventas',
+  actualizadoPor: row.actualizado_por || 'Chef Ejecutivo',
+  ultimaActualizacion: row.ultima_actualizacion || new Date().toISOString()
+});
+
+const mapRecetaToDB = (r: Receta) => ({
+  id: r.id,
+  nombre: r.nombre,
+  es_sub_receta: r.esSubReceta,
+  codigo_integracion_pos: r.codigoIntegracionPOS,
+  unidad_rendimiento: r.unidadRendimiento,
+  cantidad_rendimiento: r.cantidadRendimiento,
+  vida_util_horas: r.vidaUtilHoras,
+  temperatura_almacenado: r.temperaturaAlmacenado,
+  alergenos: r.alergenos,
+  ingredientes: r.ingredientes,
+  pasos: r.pasos,
+  tiempo_preparacion_total: r.tiempoPreparacionTotal,
+  precio_venta_menu: r.precioVentaMenu,
+  stock_actual: r.stockActual,
+  stock_minimo: r.stockMinimo,
+  modo_descuento: r.modoDescuento,
+  actualizado_por: r.actualizadoPor,
+  ultima_actualizacion: r.ultimaActualizacion || new Date().toISOString()
+});
+
+const mapFacturaFromDB = (row: any): FacturaCompra => ({
+  id: row.id,
+  facturaNumero: row.factura_numero,
+  proveedorId: row.proveedor_id,
+  fechaCompra: row.fecha_compra,
+  items: Array.isArray(row.items) ? row.items : [],
+  registradoPor: row.registrado_por || ''
+});
+
+const mapFacturaToDB = (f: FacturaCompra) => ({
+  id: f.id,
+  factura_numero: f.facturaNumero,
+  proveedor_id: f.proveedorId,
+  fecha_compra: f.fechaCompra,
+  items: f.items,
+  registrado_por: f.registradoPor
+});
+
+const mapVentaFromDB = (row: any): RegistroVentas => ({
+  id: row.id,
+  fechaInicio: row.fecha_inicio,
+  fechaFin: row.fecha_fin,
+  items: Array.isArray(row.items) ? row.items : [],
+  fechaRegistro: row.fecha_registro || row.created_at || new Date().toISOString(),
+  registradoPor: row.registrado_por || ''
+});
+
+const mapVentaToDB = (v: RegistroVentas) => ({
+  id: v.id,
+  fecha_inicio: v.fechaInicio,
+  fecha_fin: v.fechaFin,
+  items: v.items,
+  fecha_registro: v.fechaRegistro,
+  registrado_por: v.registradoPor
+});
+
+const mapMermaFromDB = (row: any): RegistroMermaOperativa => ({
+  id: row.id,
+  fechaMerma: row.fecha_merma,
+  tipoOrigen: row.tipo_origen,
+  referenciaId: row.referencia_id,
+  cantidadPerdida: Number(row.cantidad_perdida) || 0,
+  motivo: row.motivo,
+  costoPerdida: Number(row.costo_perdida) || 0,
+  registradoPor: row.registrado_por || ''
+});
+
+const mapMermaToDB = (m: RegistroMermaOperativa) => ({
+  id: m.id,
+  fecha_merma: m.fechaMerma,
+  tipo_origen: m.tipoOrigen,
+  referencia_id: m.referenciaId,
+  cantidad_perdida: m.cantidadPerdida,
+  motivo: m.motivo,
+  costo_perdida: m.costoPerdida,
+  registrado_por: m.registradoPor
+});
+
+const mapHistoricoFromDB = (row: any): RegistroHistoricoPrecio => ({
+  id: row.id,
+  timestamp: row.timestamp,
+  ingredienteId: row.ingrediente_id,
+  proveedorId: row.proveedor_id,
+  precioUnitarioAP: Number(row.precio_unitario_ap) || 0,
+  cantidad: Number(row.cantidad) || 0
+});
+
+const mapHistoricoToDB = (h: RegistroHistoricoPrecio) => ({
+  id: h.id,
+  timestamp: h.timestamp,
+  ingrediente_id: h.ingredienteId,
+  proveedor_id: h.proveedorId,
+  precio_unitario_ap: h.precioUnitarioAP,
+  cantidad: h.cantidad
+});
+
+const mapLoteFromDB = (row: any): LoteProduccion => ({
+  id: row.id,
+  fecha: row.fecha,
+  recetaId: row.receta_id,
+  cantidadProducida: Number(row.cantidad_producida) || 0,
+  costoTotalInsumos: Number(row.costo_total_insumos) || 0,
+  costoPorcionReal: Number(row.costo_porcion_real) || 0,
+  insumos: Array.isArray(row.insumos) ? row.insumos : [],
+  registradoPor: row.registrado_por || ''
+});
+
+const mapLoteToDB = (l: LoteProduccion) => ({
+  id: l.id,
+  fecha: l.fecha,
+  receta_id: l.recetaId,
+  cantidad_producida: l.cantidadProducida,
+  costo_total_insumos: l.costoTotalInsumos,
+  costo_porcion_real: l.costoPorcionReal,
+  insumos: l.insumos,
+  registrado_por: l.registradoPor
+});
+
+const mapConfigFromDB = (row: any): ConfiguracionCostos => ({
+  alquiler: Number(row.alquiler) || 0,
+  serviciosPublicos: Number(row.servicios_publicos) || 0,
+  nominaAdministrativa: Number(row.nomina_administrativa) || 0,
+  otrosGastos: Number(row.otros_gastos) || 0,
+  platosProyectadosMensuales: Number(row.platos_proyectados_mensuales) || 1,
+  factorCondimentoGlobal: Number(row.factor_condimento_global) || 2.0,
+  margenAlimentosObjetivo: Number(row.margen_alimentos_objetivo) || 30.0,
+  porcentajeImpuestos: Number(row.porcentaje_impuestos) || 8.0
+});
+
+const mapConfigToDB = (c: ConfiguracionCostos) => ({
+  id: 'default',
+  alquiler: c.alquiler,
+  servicios_publicos: c.serviciosPublicos,
+  nomina_administrativa: c.nominaAdministrativa,
+  otros_gastos: c.otrosGastos,
+  platos_proyectados_mensuales: c.platosProyectadosMensuales,
+  factor_condimento_global: c.factorCondimentoGlobal,
+  margen_alimentos_objetivo: c.margenAlimentosObjetivo,
+  porcentaje_impuestos: c.porcentajeImpuestos,
+  updated_at: new Date().toISOString()
+});
+
 class LocalDatabase {
   private get<T>(key: string, defaultValue: T): T {
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : defaultValue;
+    try {
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
   }
 
   private set<T>(key: string, value: T): void {
-    localStorage.setItem(key, JSON.stringify(value));
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      console.error('Error saving to localStorage:', e);
+    }
   }
 
   constructor() {
-    // Limpiar categorías obsoletas
-    localStorage.removeItem('mixo_categorias');
-
-    // Inicializar tablas vacías/semilla
+    // Inicializar semillas locales de contingencia
     if (!localStorage.getItem(KEYS.INGREDIENTES)) {
       this.set(KEYS.INGREDIENTES, INGREDIENTES_INICIALES);
-    } else {
-      // Migración: Si hay algún ingrediente con el esquema viejo, resetear o migrar
-      const ingreds = this.get<any[]>(KEYS.INGREDIENTES, []);
-      const tieneEsquemaViejo = ingreds.some(ing => 'unidadCompra' in ing || 'factorConversion' in ing);
-      if (tieneEsquemaViejo) {
-        this.set(KEYS.INGREDIENTES, INGREDIENTES_INICIALES);
-        this.set(KEYS.FACTURAS, []);
-        this.set(KEYS.HISTORICO_PRECIOS, []);
-        this.set(KEYS.MERMAS, []);
-        this.set(KEYS.LOTES_PRODUCCION, []);
-        this.set(KEYS.VENTAS, []);
-      } else {
-        let migrado = false;
-        const actualizados = ingreds.map(ing => {
-          let updated = { ...ing };
-          if ('categoriaId' in updated) {
-            migrado = true;
-            const catId = updated.categoriaId;
-            if (catId === 'cat_verduras') {
-              updated.conservacion = 'refrigerado';
-              updated.perecibilidad = 'alta';
-              updated.diasVidaUtil = 7;
-            } else if (catId === 'cat_carnes') {
-              updated.conservacion = 'refrigerado';
-              updated.perecibilidad = 'alta';
-              updated.diasVidaUtil = 5;
-            } else if (catId === 'cat_lacteos') {
-              updated.conservacion = 'refrigerado';
-              updated.perecibilidad = 'media';
-              updated.diasVidaUtil = 21;
-            } else if (catId === 'cat_abarrotes') {
-              updated.conservacion = 'secos';
-              updated.perecibilidad = 'baja';
-              updated.diasVidaUtil = 365;
-            } else if (catId === 'cat_panaderia') {
-              updated.conservacion = 'secos';
-              updated.perecibilidad = 'media';
-              updated.diasVidaUtil = 5;
-            } else {
-              updated.conservacion = 'secos';
-              updated.perecibilidad = 'media';
-              updated.diasVidaUtil = 7;
-            }
-            delete updated.categoriaId;
-          }
-          if (updated.stockActual === undefined) {
-            migrado = true;
-            updated.stockActual = 10000;
-            updated.stockMinimo = 5000;
-            updated.fechaVencimiento = new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
-          }
-          if (updated.conservacion === undefined) {
-            migrado = true;
-            updated.conservacion = 'secos';
-            updated.perecibilidad = 'media';
-            updated.diasVidaUtil = 7;
-          }
-          return updated;
-        });
-        if (migrado) {
-          this.set(KEYS.INGREDIENTES, actualizados);
-        }
-      }
     }
     if (!localStorage.getItem(KEYS.CONFIGURACION)) {
       this.set(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
@@ -359,6 +513,18 @@ class LocalDatabase {
 
   // --- MÓDULO 1: INGREDIENTES ---
   async getIngredientes(): Promise<Ingrediente[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('ingredientes').select('*').order('nombre', { ascending: true });
+        if (!error && data) {
+          const list = data.map(mapIngredienteFromDB);
+          this.set(KEYS.INGREDIENTES, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase ingredientes, usando fallback local:', err);
+      }
+    }
     return this.get<Ingrediente[]>(KEYS.INGREDIENTES, []);
   }
 
@@ -371,7 +537,6 @@ class LocalDatabase {
     
     const precioCambio = !anterior || anterior.precioActivo !== ingrediente.precioActivo;
     if (precioCambio && ingrediente.precioActivo !== undefined && ingrediente.precioActivo > 0) {
-      const historicos = this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
       const nuevoHistorico: RegistroHistoricoPrecio = {
         id: 'hist_' + Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
@@ -380,8 +545,15 @@ class LocalDatabase {
         precioUnitarioAP: ingrediente.precioActivo,
         cantidad: 0
       };
-      historicos.push(nuevoHistorico);
-      this.set(KEYS.HISTORICO_PRECIOS, historicos);
+      await this.saveHistoricoPrecio(nuevoHistorico);
+    }
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('ingredientes').upsert(mapIngredienteToDB(ingrediente));
+      } catch (err) {
+        console.error('Error guardando ingrediente en Supabase:', err);
+      }
     }
 
     if (index >= 0) {
@@ -395,6 +567,13 @@ class LocalDatabase {
   }
 
   async deleteIngrediente(id: string): Promise<Ingrediente[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('ingredientes').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando ingrediente en Supabase:', err);
+      }
+    }
     const ingredientes = await this.getIngredientes();
     const filtrados = ingredientes.filter(i => i.id !== id);
     this.set(KEYS.INGREDIENTES, filtrados);
@@ -403,25 +582,63 @@ class LocalDatabase {
 
   // --- MÓDULO 4: CONFIGURACIÓN FINANCIERA ---
   async getConfiguracion(): Promise<ConfiguracionCostos> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('configuracion_costos').select('*').eq('id', 'default').maybeSingle();
+        if (!error && data) {
+          const config = mapConfigFromDB(data);
+          this.set(KEYS.CONFIGURACION, config);
+          return config;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase configuracion, usando fallback:', err);
+      }
+    }
     return this.get<ConfiguracionCostos>(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
   }
 
   async saveConfiguracion(config: ConfiguracionCostos): Promise<ConfiguracionCostos> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('configuracion_costos').upsert(mapConfigToDB(config));
+      } catch (err) {
+        console.error('Error guardando configuración en Supabase:', err);
+      }
+    }
     this.set(KEYS.CONFIGURACION, config);
     return config;
   }
 
   // --- MÓDULO 2: RECETAS ---
   async getRecetas(): Promise<Receta[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('recetas').select('*').order('nombre', { ascending: true });
+        if (!error && data) {
+          const list = data.map(mapRecetaFromDB);
+          this.set(KEYS.RECETAS, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase recetas, usando fallback:', err);
+      }
+    }
     return this.get<Receta[]>(KEYS.RECETAS, []);
   }
 
   async saveReceta(receta: Receta): Promise<Receta[]> {
+    receta.ultimaActualizacion = new Date().toISOString();
+
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('recetas').upsert(mapRecetaToDB(receta));
+      } catch (err) {
+        console.error('Error guardando receta en Supabase:', err);
+      }
+    }
+
     const recetas = await this.getRecetas();
     const index = recetas.findIndex(r => r.id === receta.id);
-    
-    receta.ultimaActualizacion = new Date().toISOString();
-    
     if (index >= 0) {
       recetas[index] = receta;
     } else {
@@ -433,6 +650,13 @@ class LocalDatabase {
   }
 
   async deleteReceta(id: string): Promise<Receta[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('recetas').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando receta en Supabase:', err);
+      }
+    }
     const recetas = await this.getRecetas();
     const filtrados = recetas.filter(r => r.id !== id);
     this.set(KEYS.RECETAS, filtrados);
@@ -441,10 +665,29 @@ class LocalDatabase {
 
   // --- MÓDULO 3: PROVEEDORES ---
   async getProveedores(): Promise<Proveedor[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('proveedores').select('*').order('nombre_comercial', { ascending: true });
+        if (!error && data) {
+          const list = data.map(mapProveedorFromDB);
+          this.set(KEYS.PROVEEDORES, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase proveedores, usando fallback:', err);
+      }
+    }
     return this.get<Proveedor[]>(KEYS.PROVEEDORES, []);
   }
 
   async saveProveedor(proveedor: Proveedor): Promise<Proveedor[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('proveedores').upsert(mapProveedorToDB(proveedor));
+      } catch (err) {
+        console.error('Error guardando proveedor en Supabase:', err);
+      }
+    }
     const proveedores = await this.getProveedores();
     const index = proveedores.findIndex(p => p.id === proveedor.id);
     
@@ -459,6 +702,13 @@ class LocalDatabase {
   }
 
   async deleteProveedor(id: string): Promise<Proveedor[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('proveedores').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando proveedor en Supabase:', err);
+      }
+    }
     const proveedores = await this.getProveedores();
     const filtrados = proveedores.filter(p => p.id !== id);
     this.set(KEYS.PROVEEDORES, filtrados);
@@ -467,17 +717,36 @@ class LocalDatabase {
 
   // --- REGISTRO DE COMPRAS (FACTURAS) Y HISTORIAL ---
   async getFacturas(): Promise<FacturaCompra[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('facturas_compras').select('*').order('fecha_compra', { ascending: false });
+        if (!error && data) {
+          const list = data.map(mapFacturaFromDB);
+          this.set(KEYS.FACTURAS, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase facturas, usando fallback:', err);
+      }
+    }
     return this.get<FacturaCompra[]>(KEYS.FACTURAS, []);
   }
 
   async saveFactura(factura: FacturaCompra): Promise<FacturaCompra[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('facturas_compras').upsert(mapFacturaToDB(factura));
+      } catch (err) {
+        console.error('Error guardando factura en Supabase:', err);
+      }
+    }
+
     const facturas = await this.getFacturas();
     facturas.push(factura);
     this.set(KEYS.FACTURAS, facturas);
 
     // Actualizar precios de ingredientes e inyectar al historial
     const ingredientes = await this.getIngredientes();
-    const historicos = this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
 
     for (const item of factura.items) {
       // 1. Inyectar histórico
@@ -489,9 +758,9 @@ class LocalDatabase {
         precioUnitarioAP: item.precioCompraAP / item.cantidadComprada,
         cantidad: item.cantidadComprada
       };
-      historicos.push(nuevoHistorico);
+      await this.saveHistoricoPrecio(nuevoHistorico);
 
-      // 2. Actualizar precio activo en el catálogo (Último Precio - Fase 1) y sumar stock, y fecha de vencimiento
+      // 2. Actualizar precio activo en el catálogo y sumar stock
       const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
       if (ingIndex >= 0) {
         ingredientes[ingIndex].precioActivo = item.precioCompraAP / item.cantidadComprada;
@@ -500,25 +769,68 @@ class LocalDatabase {
           ingredientes[ingIndex].fechaVencimiento = item.fechaVencimiento;
         }
         ingredientes[ingIndex].ultimaActualizacion = new Date().toISOString();
+        await this.saveIngrediente(ingredientes[ingIndex]);
       }
     }
-
-    this.set(KEYS.INGREDIENTES, ingredientes);
-    this.set(KEYS.HISTORICO_PRECIOS, historicos);
 
     return facturas;
   }
 
   async getHistoricoPrecios(): Promise<RegistroHistoricoPrecio[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('historico_precios').select('*').order('timestamp', { ascending: false });
+        if (!error && data) {
+          const list = data.map(mapHistoricoFromDB);
+          this.set(KEYS.HISTORICO_PRECIOS, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase histórico precios, usando fallback:', err);
+      }
+    }
     return this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
+  }
+
+  private async saveHistoricoPrecio(h: RegistroHistoricoPrecio): Promise<void> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('historico_precios').upsert(mapHistoricoToDB(h));
+      } catch (err) {
+        console.error('Error guardando histórico de precio en Supabase:', err);
+      }
+    }
+    const historicos = this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
+    historicos.push(h);
+    this.set(KEYS.HISTORICO_PRECIOS, historicos);
   }
 
   // --- REGISTRO DE MERMAS OPERATIVAS ---
   async getMermas(): Promise<RegistroMermaOperativa[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('mermas_operativas').select('*').order('fecha_merma', { ascending: false });
+        if (!error && data) {
+          const list = data.map(mapMermaFromDB);
+          this.set(KEYS.MERMAS, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase mermas, usando fallback:', err);
+      }
+    }
     return this.get<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
   }
 
   async saveMerma(merma: RegistroMermaOperativa): Promise<RegistroMermaOperativa[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('mermas_operativas').upsert(mapMermaToDB(merma));
+      } catch (err) {
+        console.error('Error guardando merma en Supabase:', err);
+      }
+    }
+
     const mermas = await this.getMermas();
     mermas.push(merma);
     this.set(KEYS.MERMAS, mermas);
@@ -529,20 +841,28 @@ class LocalDatabase {
       const ingIndex = ingredientes.findIndex(i => i.id === merma.referenciaId);
       if (ingIndex >= 0) {
         ingredientes[ingIndex].stockActual = Math.max(0, (ingredientes[ingIndex].stockActual || 0) - merma.cantidadPerdida);
-        this.set(KEYS.INGREDIENTES, ingredientes);
+        await this.saveIngrediente(ingredientes[ingIndex]);
       }
     } else if (merma.tipoOrigen === 'receta') {
       const recetas = await this.getRecetas();
       const recIndex = recetas.findIndex(r => r.id === merma.referenciaId);
       if (recIndex >= 0) {
         recetas[recIndex].stockActual = Math.max(0, (recetas[recIndex].stockActual || 0) - merma.cantidadPerdida);
-        this.set(KEYS.RECETAS, recetas);
+        await this.saveReceta(recetas[recIndex]);
       }
     }
     return mermas;
   }
 
   async deleteMerma(id: string): Promise<RegistroMermaOperativa[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('mermas_operativas').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando merma en Supabase:', err);
+      }
+    }
+
     const mermas = await this.getMermas();
     const mermaToDelete = mermas.find(m => m.id === id);
     const filtradas = mermas.filter(m => m.id !== id);
@@ -554,14 +874,14 @@ class LocalDatabase {
         const ingIndex = ingredientes.findIndex(i => i.id === mermaToDelete.referenciaId);
         if (ingIndex >= 0) {
           ingredientes[ingIndex].stockActual = (ingredientes[ingIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
-          this.set(KEYS.INGREDIENTES, ingredientes);
+          await this.saveIngrediente(ingredientes[ingIndex]);
         }
       } else if (mermaToDelete.tipoOrigen === 'receta') {
         const recetas = await this.getRecetas();
         const recIndex = recetas.findIndex(r => r.id === mermaToDelete.referenciaId);
         if (recIndex >= 0) {
           recetas[recIndex].stockActual = (recetas[recIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
-          this.set(KEYS.RECETAS, recetas);
+          await this.saveReceta(recetas[recIndex]);
         }
       }
     }
@@ -570,10 +890,30 @@ class LocalDatabase {
 
   // --- MÓDULO 5: LOTES DE PRODUCCIÓN REAL ---
   async getLotesProduccion(): Promise<LoteProduccion[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('lotes_produccion').select('*').order('fecha', { ascending: false });
+        if (!error && data) {
+          const list = data.map(mapLoteFromDB);
+          this.set(KEYS.LOTES_PRODUCCION, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase lotes producción, usando fallback:', err);
+      }
+    }
     return this.get<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
   }
 
   async saveLoteProduccion(lote: LoteProduccion): Promise<LoteProduccion[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('lotes_produccion').upsert(mapLoteToDB(lote));
+      } catch (err) {
+        console.error('Error guardando lote de producción en Supabase:', err);
+      }
+    }
+
     const lotes = await this.getLotesProduccion();
     const index = lotes.findIndex(l => l.id === lote.id);
     
@@ -589,18 +929,19 @@ class LocalDatabase {
           const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
           if (ingIndex >= 0) {
             const ing = ingredientes[ingIndex];
-            ingredientes[ingIndex].stockActual = Math.max(0, (ing.stockActual || 0) - item.cantidadReal);
+            ing.stockActual = Math.max(0, (ing.stockActual || 0) - item.cantidadReal);
+            await this.saveIngrediente(ing);
           }
         }
       }
-      this.set(KEYS.INGREDIENTES, ingredientes);
 
       // Incrementar stock de la receta producida
       const recetas = await this.getRecetas();
       const recIndex = recetas.findIndex(r => r.id === lote.recetaId);
       if (recIndex >= 0) {
-        recetas[recIndex].stockActual = (recetas[recIndex].stockActual || 0) + lote.cantidadProducida;
-        this.set(KEYS.RECETAS, recetas);
+        const rec = recetas[recIndex];
+        rec.stockActual = (rec.stockActual || 0) + lote.cantidadProducida;
+        await this.saveReceta(rec);
       }
     }
     
@@ -609,6 +950,14 @@ class LocalDatabase {
   }
 
   async deleteLoteProduccion(id: string): Promise<LoteProduccion[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('lotes_produccion').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando lote producción en Supabase:', err);
+      }
+    }
+
     const lotes = await this.getLotesProduccion();
     const loteToDelete = lotes.find(l => l.id === id);
     const filtrados = lotes.filter(l => l.id !== id);
@@ -621,18 +970,19 @@ class LocalDatabase {
           const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
           if (ingIndex >= 0) {
             const ing = ingredientes[ingIndex];
-            ingredientes[ingIndex].stockActual = (ing.stockActual || 0) + item.cantidadReal;
+            ing.stockActual = (ing.stockActual || 0) + item.cantidadReal;
+            await this.saveIngrediente(ing);
           }
         }
       }
-      this.set(KEYS.INGREDIENTES, ingredientes);
 
       // Decrementar stock de la receta producida
       const recetas = await this.getRecetas();
       const recIndex = recetas.findIndex(r => r.id === loteToDelete.recetaId);
       if (recIndex >= 0) {
-        recetas[recIndex].stockActual = Math.max(0, (recetas[recIndex].stockActual || 0) - loteToDelete.cantidadProducida);
-        this.set(KEYS.RECETAS, recetas);
+        const rec = recetas[recIndex];
+        rec.stockActual = Math.max(0, (rec.stockActual || 0) - loteToDelete.cantidadProducida);
+        await this.saveReceta(rec);
       }
     }
     return filtrados;
@@ -640,10 +990,30 @@ class LocalDatabase {
 
   // --- MÓDULO DE VENTAS (REPORTES POS) ---
   async getVentas(): Promise<RegistroVentas[]> {
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.from('registros_ventas').select('*').order('fecha_inicio', { ascending: false });
+        if (!error && data) {
+          const list = data.map(mapVentaFromDB);
+          this.set(KEYS.VENTAS, list);
+          return list;
+        }
+      } catch (err) {
+        console.warn('Fallo consulta Supabase ventas, usando fallback:', err);
+      }
+    }
     return this.get<RegistroVentas[]>(KEYS.VENTAS, []);
   }
 
   async saveVenta(venta: RegistroVentas): Promise<RegistroVentas[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('registros_ventas').upsert(mapVentaToDB(venta));
+      } catch (err) {
+        console.error('Error guardando venta en Supabase:', err);
+      }
+    }
+
     const ventas = await this.getVentas();
     ventas.push(venta);
     this.set(KEYS.VENTAS, ventas);
@@ -694,25 +1064,33 @@ class LocalDatabase {
       const ingIdx = ingredientes.findIndex(i => i.id === ingId);
       if (ingIdx >= 0) {
         const ing = ingredientes[ingIdx];
-        ingredientes[ingIdx].stockActual = Math.max(0, (ing.stockActual || 0) - deducirIngredientes[ingId]);
+        ing.stockActual = Math.max(0, (ing.stockActual || 0) - deducirIngredientes[ingId]);
+        await this.saveIngrediente(ing);
       }
     }
-    this.set(KEYS.INGREDIENTES, ingredientes);
 
     // 2. Deducir recetas preparadas
     for (const recId of Object.keys(deducirRecetas)) {
       const recIdx = recetas.findIndex(r => r.id === recId);
       if (recIdx >= 0) {
         const rec = recetas[recIdx];
-        recetas[recIdx].stockActual = Math.max(0, (rec.stockActual || 0) - deducirRecetas[recId]);
+        rec.stockActual = Math.max(0, (rec.stockActual || 0) - deducirRecetas[recId]);
+        await this.saveReceta(rec);
       }
     }
-    this.set(KEYS.RECETAS, recetas);
 
     return ventas;
   }
 
   async deleteVenta(id: string): Promise<RegistroVentas[]> {
+    if (isSupabaseConfigured) {
+      try {
+        await supabase.from('registros_ventas').delete().eq('id', id);
+      } catch (err) {
+        console.error('Error borrando venta en Supabase:', err);
+      }
+    }
+
     const ventas = await this.getVentas();
     const ventaToDelete = ventas.find(v => v.id === id);
     const filtradas = ventas.filter(v => v.id !== id);
@@ -762,20 +1140,20 @@ class LocalDatabase {
         const ingIdx = ingredientes.findIndex(i => i.id === ingId);
         if (ingIdx >= 0) {
           const ing = ingredientes[ingIdx];
-          ingredientes[ingIdx].stockActual = (ing.stockActual || 0) + resultDevolucion[ingId];
+          ing.stockActual = (ing.stockActual || 0) + resultDevolucion[ingId];
+          await this.saveIngrediente(ing);
         }
       }
-      this.set(KEYS.INGREDIENTES, ingredientes);
 
       // Devolver stock al catálogo de recetas
       for (const recId of Object.keys(devolucionRecetas)) {
         const recIdx = recetas.findIndex(r => r.id === recId);
         if (recIdx >= 0) {
           const rec = recetas[recIdx];
-          recetas[recIdx].stockActual = (rec.stockActual || 0) + devolucionRecetas[recId];
+          rec.stockActual = (rec.stockActual || 0) + devolucionRecetas[recId];
+          await this.saveReceta(rec);
         }
       }
-      this.set(KEYS.RECETAS, recetas);
     }
 
     return filtradas;
