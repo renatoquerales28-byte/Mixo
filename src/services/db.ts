@@ -140,8 +140,6 @@ export interface ConfiguracionCostos {
   porcentajeImpuestos: number; // ej: 8%
 }
 
-const INGREDIENTES_INICIALES: Ingrediente[] = [];
-
 const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   alquiler: 1200.0,
   serviciosPublicos: 450.0,
@@ -152,8 +150,6 @@ const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   margenAlimentosObjetivo: 30.0,
   porcentajeImpuestos: 8.0
 };
-
-const PROVEEDORES_INICIALES: Proveedor[] = [];
 
 
 const KEYS = {
