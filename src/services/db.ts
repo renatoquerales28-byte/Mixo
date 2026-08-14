@@ -140,74 +140,7 @@ export interface ConfiguracionCostos {
   porcentajeImpuestos: number; // ej: 8%
 }
 
-// Datos de Inicialización (Premium Mock Data)
-const INGREDIENTES_INICIALES: Ingrediente[] = [
-  {
-    id: "ing_tomate_chonto",
-    nombre: "Tomate Chonto",
-    unidadReceta: "g",
-    precioActivo: 0.0025,
-    ultimaActualizacion: new Date().toISOString(),
-    stockActual: 1500,
-    stockMinimo: 5000,
-    fechaVencimiento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
-    conservacion: "refrigerado",
-    perecibilidad: "alta",
-    diasVidaUtil: 7
-  },
-  {
-    id: "ing_carne_molida",
-    nombre: "Carne Molida de Res Premium",
-    unidadReceta: "g",
-    precioActivo: 0.0085,
-    ultimaActualizacion: new Date().toISOString(),
-    stockActual: 8000,
-    stockMinimo: 3000,
-    fechaVencimiento: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString(),
-    conservacion: "refrigerado",
-    perecibilidad: "alta",
-    diasVidaUtil: 5
-  },
-  {
-    id: "ing_pasta_lasana",
-    nombre: "Placas de Pasta para Lasaña",
-    unidadReceta: "g",
-    precioActivo: 0.0024,
-    ultimaActualizacion: new Date().toISOString(),
-    stockActual: 5000,
-    stockMinimo: 10000,
-    fechaVencimiento: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-    conservacion: "secos",
-    perecibilidad: "baja",
-    diasVidaUtil: 365
-  },
-  {
-    id: "ing_queso_mozzarella",
-    nombre: "Queso Mozzarella Bloque",
-    unidadReceta: "g",
-    precioActivo: 0.007,
-    ultimaActualizacion: new Date().toISOString(),
-    stockActual: 4000,
-    stockMinimo: 2000,
-    fechaVencimiento: new Date(Date.now() + 1.5 * 24 * 60 * 60 * 1000).toISOString(),
-    conservacion: "refrigerado",
-    perecibilidad: "media",
-    diasVidaUtil: 21
-  },
-  {
-    id: "ing_aceite_oliva",
-    nombre: "Aceite de Oliva Extra Virgen",
-    unidadReceta: "ml",
-    precioActivo: 0.01,
-    ultimaActualizacion: new Date().toISOString(),
-    stockActual: 10000,
-    stockMinimo: 5000,
-    fechaVencimiento: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString(),
-    conservacion: "secos",
-    perecibilidad: "baja",
-    diasVidaUtil: 365
-  }
-];
+const INGREDIENTES_INICIALES: Ingrediente[] = [];
 
 const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   alquiler: 1200.0,
@@ -220,24 +153,8 @@ const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   porcentajeImpuestos: 8.0
 };
 
-const PROVEEDORES_INICIALES: Proveedor[] = [
-  {
-    id: "prov_distribuidora_fb",
-    nombreComercial: "Distribuidora F&B S.A.",
-    nit: "800.124.556-9",
-    contactoNombre: "Juan Carlos Gómez",
-    telefono: "+57 312 456 7890",
-    correo: "ventas@distribuidorafb.com"
-  },
-  {
-    id: "prov_frubana",
-    nombreComercial: "Frutas y Verduras El Proveedor",
-    nit: "901.332.115-2",
-    contactoNombre: "Marta Lucía Rincón",
-    telefono: "+57 315 789 1234",
-    correo: "pedidos@elproveedor.co"
-  }
-];
+const PROVEEDORES_INICIALES: Proveedor[] = [];
+
 
 const KEYS = {
   INGREDIENTES: 'mixo_ingredientes',
