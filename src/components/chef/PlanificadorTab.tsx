@@ -24,6 +24,7 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
   const [cantidadObjetivo, setCantidadObjetivo] = useState<number | string>('1');
   const [desglosarSubRecetas, setDesglosarSubRecetas] = useState<boolean>(true);
   const [ventas, setVentas] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'planificador' | 'matriz_bcg'>('planificador');
 
   useEffect(() => {
     db.getVentas().then(setVentas);
@@ -154,9 +155,52 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
     window.print();
   };
 
+  const tabs = [
+    { key: 'planificador' as const, label: 'Planificador de Compras' },
+    { key: 'matriz_bcg' as const, label: 'Ingeniería de Menú (Matriz BCG)' }
+  ];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }} className="no-print">
-      <div className="mixo-card" style={{ padding: '24px', width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} className="no-print">
+      {/* Tabs internas */}
+      <div
+        className="tab-navigation"
+        style={{
+          display: 'flex',
+          gap: '4px',
+          borderBottom: '1px solid var(--color-border)',
+          marginBottom: '8px',
+          paddingBottom: '0',
+        }}
+      >
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: '10px 20px',
+              fontSize: '14px',
+              fontWeight: activeTab === tab.key ? '600' : '400',
+              color: activeTab === tab.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: activeTab === tab.key
+                ? '2px solid var(--color-accent)'
+                : '2px solid transparent',
+              borderRadius: '0',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              marginBottom: '-1px',
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'planificador' && (
+        <div className="mixo-card" style={{ padding: '24px', width: '100%' }}>
         <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '16px', marginBottom: '16px' }}>
           <h2>Planificador de Compras e Insumos</h2>
           {selectedRecetaId && ingredientesPlanificados.length > 0 && (
@@ -337,12 +381,9 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
 
             </div>
           )
-        ) : (
-          <div className="flex-center" style={{ padding: '48px', backgroundColor: 'var(--color-bg-base)', borderRadius: '24px', border: '1px solid var(--color-border)' }}>
-            <span className="text-secondary" style={{ fontSize: '14px' }}>Por favor selecciona una fórmula o receta de la lista para ver la planificación de producción.</span>
-          </div>
-        )}
+        ) : null}
       </div>
+      )}
 
       {/* VISTA DE IMPRESIÓN EXCLUSIVA */}
       <style>{`
@@ -449,7 +490,7 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
       )}
 
       {/* Matriz de Ingeniería de Menú (BCG) */}
-      {(() => {
+      {activeTab === 'matriz_bcg' && (() => {
         const finalRecipes = recetas.filter(r => !r.esSubReceta);
         const platesStats = finalRecipes.map(rec => {
           let costoLote = 0;
@@ -483,7 +524,7 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
           { key: 'perro',      label: '🐶 Perro',              sub: 'Baja venta, bajo margen',   color: '#ef5350', bg: 'rgba(239,83,80,0.04)', border: 'rgba(239,83,80,0.15)', items: platesStats.filter(p => p.totalVolume < avgVol && p.margin < avgMar) },
         ];
         return (
-          <div className="mixo-card" style={{ marginTop: '8px' }}>
+          <div className="mixo-card" style={{ marginTop: '0' }}>
             <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '16px' }}>
               <div>
                 <h2>Ingeniería de Menú (Matriz BCG)</h2>

@@ -105,41 +105,89 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
     .sort((a, b) => b.pct - a.pct)
     .slice(0, 3);
 
+  // 4. Calcular recetas/sub-recetas que están por debajo de su stock mínimo
+  const recetasBajoStock = recetas.filter(rec => 
+    (rec.esSubReceta || rec.modoDescuento === 'produccion_previa') &&
+    rec.stockMinimo !== undefined && 
+    (rec.stockActual || 0) < rec.stockMinimo
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      {/* 4 Indicadores Rápidos (Tarjetas Superiores) */}
+      {/* SECCIÓN 1: FINANZAS Y CONTROL DE COSTOS */}
       <div className="grid-cols-2" style={{ gap: '16px' }}>
-        <div className="mixo-card" style={{ backgroundColor: 'var(--color-bg-transparent)' }}>
-          <span className="text-secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Insumos sin Compras</span>
-          <h2 style={{ fontSize: '28px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {insumosSinCosto.length} 
-            <span style={{ fontSize: '14px', fontWeight: 'normal', color: 'var(--color-text-secondary)' }}>insumos</span>
-          </h2>
-          {insumosSinCosto.length > 0 ? (
-            <p className="text-secondary" style={{ fontSize: '12px', color: '#ffb300' }}>
-              Tienes insumos con costo de compra en $0.00. Registra sus facturas en la sección de Compras.
-            </p>
-          ) : (
-            <p className="text-secondary" style={{ fontSize: '12px', color: '#81c784' }}>
-              Todos los insumos tienen precios de compra activos.
-            </p>
-          )}
+        {/* Alerta de Aumento de Costos */}
+        <div className="mixo-card">
+          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+            <h3>Aumento de Costos en Platos</h3>
+            <button className="btn btn-action" onClick={() => onSwitchTab('recetas')} style={{ fontSize: '12px' }}>
+              Ver Recetario →
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {desviaciones.length === 0 ? (
+              <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
+                ✓ ¡Excelente! Ningún plato ha registrado un aumento de costos en sus últimos lotes.
+              </p>
+            ) : (
+              desviaciones.map(item => (
+                <div key={item.receta.id} className="flex-row-between" style={{ padding: '10px 14px', backgroundColor: 'rgba(255, 138, 128, 0.03)', borderRadius: 'var(--border-radius-card)' }}>
+                  <div>
+                    <strong>{item.receta.nombre}</strong>
+                    <div className="text-secondary" style={{ fontSize: '11px', marginTop: '2px' }}>
+                      Costo Teórico: ${item.teorico.toFixed(2)} vs. Costo Lote: ${item.real.toFixed(2)}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className="badge badge-danger" style={{ fontWeight: 'bold', fontSize: '11px', padding: '2px 8px', borderRadius: '8px' }}>
+                      +{item.pct.toFixed(1)}% Costo
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        <div className="mixo-card" style={{ backgroundColor: 'var(--color-bg-transparent)' }}>
-          <span className="text-secondary" style={{ fontSize: '12px', textTransform: 'uppercase' }}>Recetas Estandarizadas</span>
-          <h2 style={{ fontSize: '28px' }}>
-            {recetas.length} 
-            <span style={{ fontSize: '14px', fontWeight: 'normal', color: 'var(--color-text-secondary)' }}> recetas activas</span>
-          </h2>
-          <p className="text-secondary" style={{ fontSize: '12px' }}>
-            Dividido en {recetas.filter(r => r.esSubReceta).length} sub-recetas de producción y {recetas.filter(r => !r.esSubReceta).length} platos del menú.
-          </p>
+        {/* Alertas de Costeo */}
+        <div className="mixo-card">
+          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+            <h3>Falta Registrar Costo de Compra</h3>
+            <button className="btn btn-action" onClick={() => onSwitchTab('insumos')} style={{ fontSize: '12px' }}>
+              Ver Insumos →
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {insumosSinCosto.length === 0 ? (
+              <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
+                ✓ Todos los insumos tienen su costo registrado correctamente.
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p className="text-secondary" style={{ fontSize: '12px', color: '#ffb300', margin: '0 0 4px 0' }}>
+                  Hay insumos registrados sin costo. Registra facturas de compras para calcular costos reales.
+                </p>
+                {insumosSinCosto.slice(0, 3).map(ing => (
+                  <div key={ing.id} className="flex-row-between" style={{ padding: '10px 14px', backgroundColor: 'rgba(255, 179, 0, 0.03)', borderRadius: 'var(--border-radius-card)' }}>
+                    <strong>{ing.nombre}</strong>
+                    <span className="badge badge-warning" style={{ fontWeight: 'bold', fontSize: '11px' }}>
+                      Sin Costo ($0.00)
+                    </span>
+                  </div>
+                ))}
+                {insumosSinCosto.length > 3 && (
+                  <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                    y {insumosSinCosto.length - 3} insumos más...
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Alertas de Inventario Crítico (Stock y Vencimientos) */}
+      {/* SECCIÓN 2: CONTROL DE MATERIAS PRIMAS (STOCK Y VENCIMIENTOS) */}
       <div className="grid-cols-2" style={{ gap: '16px' }}>
         {/* Alerta de Stock Bajo */}
         <div className="mixo-card">
@@ -155,9 +203,9 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 ✓ Todos los insumos tienen niveles de stock saludables.
               </p>
             ) : (
-              insumosBajoStock.map(ing => (
+              insumosBajoStock.slice(0, 3).map(ing => (
                 <div key={ing.id} className="flex-row-between" style={{ padding: '10px 14px', backgroundColor: 'rgba(255, 179, 0, 0.03)', borderRadius: 'var(--border-radius-card)' }}>
-                   <div>
+                  <div>
                     <strong>{ing.nombre}</strong>
                     <div className="text-secondary" style={{ fontSize: '11px', marginTop: '2px' }}>
                       Stock actual: {formatStockDisplay(ing.stockActual, ing.unidadReceta)} (Mín: {formatStockDisplay(ing.stockMinimo, ing.unidadReceta)})
@@ -168,6 +216,11 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   </span>
                 </div>
               ))
+            )}
+            {insumosBajoStock.length > 3 && (
+              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                y {insumosBajoStock.length - 3} insumos más...
+              </div>
             )}
           </div>
         </div>
@@ -186,7 +239,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 ✓ No hay insumos vencidos ni próximos a vencer.
               </p>
             ) : (
-              insumosVencimiento.map(item => {
+              insumosVencimiento.slice(0, 3).map(item => {
                 const isExpired = item.days < 0;
                 return (
                   <div key={item.ing.id} className="flex-row-between" style={{ 
@@ -212,13 +265,60 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                 );
               })
             )}
+            {insumosVencimiento.length > 3 && (
+              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                y {insumosVencimiento.length - 3} alertas más...
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="grid-cols-2">
+      {/* SECCIÓN 3: COCINA Y TAREAS DE PRODUCCIÓN */}
+      <div className="grid-cols-2" style={{ gap: '16px' }}>
         
-        {/* Lote e Historial de Cocina */}
+        {/* Tareas de Producción */}
+        <div className="mixo-card">
+          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+            <h3>Tareas de Producción para Hoy</h3>
+            <button className="btn btn-action" onClick={() => onSwitchTab('lotes')} style={{ fontSize: '12px' }}>
+              Cocinar Lote →
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {recetasBajoStock.length === 0 ? (
+              <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
+                ✓ Todo preparado. Tu stock de producción está completo.
+              </p>
+            ) : (
+              recetasBajoStock.slice(0, 3).map(rec => {
+                const stock = rec.stockActual || 0;
+                const min = rec.stockMinimo || 0;
+                const unitLabel = rec.unidadRendimiento === 'porciones' ? 'ud.' : rec.unidadRendimiento === 'litro' ? 'L' : rec.unidadRendimiento;
+                return (
+                  <div key={rec.id} className="flex-row-between" style={{ padding: '10px 14px', backgroundColor: 'rgba(99, 102, 241, 0.03)', borderRadius: 'var(--border-radius-card)', borderLeft: '3px solid var(--color-accent)' }}>
+                    <div>
+                      <strong>{rec.nombre}</strong>
+                      <div className="text-secondary" style={{ fontSize: '11px', marginTop: '2px' }}>
+                        Stock actual: {stock} {unitLabel} (Mínimo requerido: {min} {unitLabel})
+                      </div>
+                    </div>
+                    <span className="badge" style={{ backgroundColor: 'rgba(99, 102, 241, 0.1)', color: 'var(--color-accent)', fontWeight: 'bold', fontSize: '11px', padding: '2px 8px', borderRadius: '8px' }}>
+                      Preparar Lote
+                    </span>
+                  </div>
+                );
+              })
+            )}
+            {recetasBajoStock.length > 3 && (
+              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                y {recetasBajoStock.length - 3} platos más que necesitan producción...
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Historial de Cocina */}
         <div className="mixo-card">
           <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
             <h3>Últimos Lotes Producidos</h3>
@@ -226,7 +326,6 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               Ver Producción →
             </button>
           </div>
-
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {ultimosLotes.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px' }}>
@@ -240,7 +339,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                     <div>
                       <strong>{rec ? rec.nombre : 'Receta Eliminada'}</strong>
                       <div className="text-secondary" style={{ fontSize: '11px', marginTop: '2px' }}>
-                        {new Date(lote.fecha).toLocaleDateString()} • {lote.cantidadProducida} porciones
+                        {new Date(lote.fecha).toLocaleDateString()} • {lote.cantidadProducida} {rec ? (rec.unidadRendimiento === 'porciones' ? 'porciones' : rec.unidadRendimiento === 'litro' ? 'L' : rec.unidadRendimiento) : 'porciones'}
                       </div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
@@ -254,40 +353,6 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           </div>
         </div>
 
-        {/* Desviaciones de Costos (Teórico vs Real Lote) */}
-        <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
-            <h3>Desviación en Costo por Porción</h3>
-            <button className="btn btn-action" onClick={() => onSwitchTab('recetas')} style={{ fontSize: '12px' }}>
-              Ver Recetario →
-            </button>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {desviaciones.length === 0 ? (
-              <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ ¡Excelente! No hay desviaciones de costos críticas registradas en tus últimos lotes.
-              </p>
-            ) : (
-              desviaciones.map(item => (
-                <div key={item.receta.id} className="flex-row-between" style={{ padding: '10px 14px', backgroundColor: 'rgba(255, 138, 128, 0.03)', borderRadius: 'var(--border-radius-card)' }}>
-                  <div>
-                    <strong>{item.receta.nombre}</strong>
-                    <div className="text-secondary" style={{ fontSize: '11px', marginTop: '2px' }}>
-                      Costo Teórico: ${item.teorico.toFixed(2)} vs. Costo Lote: ${item.real.toFixed(2)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span className="badge badge-danger" style={{ fontWeight: 'bold', fontSize: '11px', padding: '2px 8px', borderRadius: '8px' }}>
-                      +{item.pct.toFixed(1)}% Desviación
-                    </span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-        
       </div>
     </div>
   );

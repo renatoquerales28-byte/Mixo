@@ -23,7 +23,7 @@ export const ComprasModule: React.FC<ComprasModuleProps> = ({ onRefresh }) => {
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0', height: '100%', overflow: 'hidden' }}>
       {/* Tabs internas */}
       <div
         style={{

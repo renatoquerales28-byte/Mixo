@@ -291,6 +291,7 @@ p, span, td, th {
   flex-direction: column;
   gap: var(--spacing-fields);
   overflow-y: auto; /* All cards are scrollable if their content exceeds their height */
+  flex-shrink: 0;
 }
 
 /* Title position rule: the card's padding always defines the title distance.
@@ -642,7 +643,7 @@ tr {
   top: calc(100% + 4px);
   left: 0;
   width: 100%;
-  max-height: 250px;
+  max-height: 176px;
   overflow-y: auto;
   z-index: 1000;
   background-color: var(--color-surface-card);

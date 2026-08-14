@@ -128,18 +128,56 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: '100%', minHeight: 0 }}>
       {/* Selector de Sub-pestañas */}
-      <div className="tabs-container" style={{ alignSelf: 'flex-start' }}>
+      <div
+        className="tab-navigation"
+        style={{
+          display: 'flex',
+          gap: '4px',
+          borderBottom: '1px solid var(--color-border)',
+          marginBottom: '16px',
+          paddingBottom: '0',
+          alignSelf: 'stretch'
+        }}
+      >
         <button 
           type="button" 
-          className={`tab-btn ${subTab === 'registro' ? 'active' : ''}`}
           onClick={() => setSubTab('registro')}
+          style={{
+            padding: '10px 20px',
+            fontSize: '14px',
+            fontWeight: subTab === 'registro' ? '600' : '400',
+            color: subTab === 'registro' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: subTab === 'registro'
+              ? '2px solid var(--color-accent)'
+              : '2px solid transparent',
+            borderRadius: '0',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            marginBottom: '-1px',
+          }}
         >
           Registro de Ventas
         </button>
         <button 
           type="button" 
-          className={`tab-btn ${subTab === 'precios' ? 'active' : ''}`}
           onClick={() => setSubTab('precios')}
+          style={{
+            padding: '10px 20px',
+            fontSize: '14px',
+            fontWeight: subTab === 'precios' ? '600' : '400',
+            color: subTab === 'precios' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: subTab === 'precios'
+              ? '2px solid var(--color-accent)'
+              : '2px solid transparent',
+            borderRadius: '0',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            marginBottom: '-1px',
+          }}
         >
           Precios y Rentabilidad (Menú)
         </button>

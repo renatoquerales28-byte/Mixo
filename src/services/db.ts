@@ -45,6 +45,9 @@ export interface Receta {
   actualizadoPor: string;
   ultimaActualizacion: string;
   precioVentaMenu?: number; // Precio real al que se vende el plato en el restaurante
+  stockActual?: number;
+  stockMinimo?: number;
+  modoDescuento?: 'explosion_ventas' | 'produccion_previa';
 }
 
 export interface ItemVenta {
@@ -520,13 +523,20 @@ class LocalDatabase {
     mermas.push(merma);
     this.set(KEYS.MERMAS, mermas);
 
-    // Deducir stock del ingrediente si es merma de materia prima
+    // Deducir stock del ingrediente si es merma de materia prima, o de la receta si es merma de producto terminado
     if (merma.tipoOrigen === 'ingrediente') {
       const ingredientes = await this.getIngredientes();
       const ingIndex = ingredientes.findIndex(i => i.id === merma.referenciaId);
       if (ingIndex >= 0) {
         ingredientes[ingIndex].stockActual = Math.max(0, (ingredientes[ingIndex].stockActual || 0) - merma.cantidadPerdida);
         this.set(KEYS.INGREDIENTES, ingredientes);
+      }
+    } else if (merma.tipoOrigen === 'receta') {
+      const recetas = await this.getRecetas();
+      const recIndex = recetas.findIndex(r => r.id === merma.referenciaId);
+      if (recIndex >= 0) {
+        recetas[recIndex].stockActual = Math.max(0, (recetas[recIndex].stockActual || 0) - merma.cantidadPerdida);
+        this.set(KEYS.RECETAS, recetas);
       }
     }
     return mermas;
@@ -538,12 +548,21 @@ class LocalDatabase {
     const filtradas = mermas.filter(m => m.id !== id);
     this.set(KEYS.MERMAS, filtradas);
 
-    if (mermaToDelete && mermaToDelete.tipoOrigen === 'ingrediente') {
-      const ingredientes = await this.getIngredientes();
-      const ingIndex = ingredientes.findIndex(i => i.id === mermaToDelete.referenciaId);
-      if (ingIndex >= 0) {
-        ingredientes[ingIndex].stockActual = (ingredientes[ingIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
-        this.set(KEYS.INGREDIENTES, ingredientes);
+    if (mermaToDelete) {
+      if (mermaToDelete.tipoOrigen === 'ingrediente') {
+        const ingredientes = await this.getIngredientes();
+        const ingIndex = ingredientes.findIndex(i => i.id === mermaToDelete.referenciaId);
+        if (ingIndex >= 0) {
+          ingredientes[ingIndex].stockActual = (ingredientes[ingIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
+          this.set(KEYS.INGREDIENTES, ingredientes);
+        }
+      } else if (mermaToDelete.tipoOrigen === 'receta') {
+        const recetas = await this.getRecetas();
+        const recIndex = recetas.findIndex(r => r.id === mermaToDelete.referenciaId);
+        if (recIndex >= 0) {
+          recetas[recIndex].stockActual = (recetas[recIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
+          this.set(KEYS.RECETAS, recetas);
+        }
       }
     }
     return filtradas;
@@ -575,6 +594,14 @@ class LocalDatabase {
         }
       }
       this.set(KEYS.INGREDIENTES, ingredientes);
+
+      // Incrementar stock de la receta producida
+      const recetas = await this.getRecetas();
+      const recIndex = recetas.findIndex(r => r.id === lote.recetaId);
+      if (recIndex >= 0) {
+        recetas[recIndex].stockActual = (recetas[recIndex].stockActual || 0) + lote.cantidadProducida;
+        this.set(KEYS.RECETAS, recetas);
+      }
     }
     
     this.set(KEYS.LOTES_PRODUCCION, lotes);
@@ -599,6 +626,14 @@ class LocalDatabase {
         }
       }
       this.set(KEYS.INGREDIENTES, ingredientes);
+
+      // Decrementar stock de la receta producida
+      const recetas = await this.getRecetas();
+      const recIndex = recetas.findIndex(r => r.id === loteToDelete.recetaId);
+      if (recIndex >= 0) {
+        recetas[recIndex].stockActual = Math.max(0, (recetas[recIndex].stockActual || 0) - loteToDelete.cantidadProducida);
+        this.set(KEYS.RECETAS, recetas);
+      }
     }
     return filtrados;
   }
@@ -613,10 +648,12 @@ class LocalDatabase {
     ventas.push(venta);
     this.set(KEYS.VENTAS, ventas);
 
-    // Deducir stock de ingredientes en cascada recursivamente
+    // Deducir stock de ingredientes en cascada o de recetas producidas
     const recetas = await this.getRecetas();
     const ingredientes = await this.getIngredientes();
-    const resultDeduccion: { [id: string]: number } = {};
+    
+    const deducirIngredientes: { [id: string]: number } = {};
+    const deducirRecetas: { [id: string]: number } = {};
 
     const explotarReceta = (recetaId: string, qty: number, visited = new Set<string>()) => {
       if (visited.has(recetaId)) return;
@@ -625,6 +662,12 @@ class LocalDatabase {
       const rec = recetas.find(r => r.id === recetaId);
       if (!rec) return;
 
+      // Si la receta es una sub-receta o está configurada como producción previa, se descuenta de su stock de lote
+      if (rec.esSubReceta || rec.modoDescuento === 'produccion_previa') {
+        deducirRecetas[recetaId] = (deducirRecetas[recetaId] || 0) + qty;
+        return;
+      }
+
       const scaleFactor = qty / rec.cantidadRendimiento;
 
       rec.ingredientes.forEach(item => {
@@ -632,25 +675,40 @@ class LocalDatabase {
         if (item.esRecetaAnidada) {
           explotarReceta(item.ingredienteId, qtyNeeded, new Set(visited));
         } else {
-          resultDeduccion[item.ingredienteId] = (resultDeduccion[item.ingredienteId] || 0) + qtyNeeded;
+          deducirIngredientes[item.ingredienteId] = (deducirIngredientes[item.ingredienteId] || 0) + qtyNeeded;
         }
       });
     };
 
     for (const item of venta.items) {
-      explotarReceta(item.recetaId, item.cantidadVendida);
-    }
-
-    // Aplicar la deducción de stock en el catálogo
-    for (const ingId of Object.keys(resultDeduccion)) {
-      const ingIdx = ingredientes.findIndex(i => i.id === ingId);
-      if (ingIdx >= 0) {
-        const ing = ingredientes[ingIdx];
-        ingredientes[ingIdx].stockActual = Math.max(0, (ing.stockActual || 0) - resultDeduccion[ingId]);
+      const rec = recetas.find(r => r.id === item.recetaId);
+      if (rec && (rec.esSubReceta || rec.modoDescuento === 'produccion_previa')) {
+        deducirRecetas[item.recetaId] = (deducirRecetas[item.recetaId] || 0) + item.cantidadVendida;
+      } else {
+        explotarReceta(item.recetaId, item.cantidadVendida);
       }
     }
 
+    // 1. Deducir ingredientes crudos
+    for (const ingId of Object.keys(deducirIngredientes)) {
+      const ingIdx = ingredientes.findIndex(i => i.id === ingId);
+      if (ingIdx >= 0) {
+        const ing = ingredientes[ingIdx];
+        ingredientes[ingIdx].stockActual = Math.max(0, (ing.stockActual || 0) - deducirIngredientes[ingId]);
+      }
+    }
     this.set(KEYS.INGREDIENTES, ingredientes);
+
+    // 2. Deducir recetas preparadas
+    for (const recId of Object.keys(deducirRecetas)) {
+      const recIdx = recetas.findIndex(r => r.id === recId);
+      if (recIdx >= 0) {
+        const rec = recetas[recIdx];
+        recetas[recIdx].stockActual = Math.max(0, (rec.stockActual || 0) - deducirRecetas[recId]);
+      }
+    }
+    this.set(KEYS.RECETAS, recetas);
+
     return ventas;
   }
 
@@ -664,6 +722,7 @@ class LocalDatabase {
       const recetas = await this.getRecetas();
       const ingredientes = await this.getIngredientes();
       const resultDevolucion: { [id: string]: number } = {};
+      const devolucionRecetas: { [id: string]: number } = {};
 
       const explotarReceta = (recetaId: string, qty: number, visited = new Set<string>()) => {
         if (visited.has(recetaId)) return;
@@ -671,6 +730,11 @@ class LocalDatabase {
 
         const rec = recetas.find(r => r.id === recetaId);
         if (!rec) return;
+
+        if (rec.esSubReceta || rec.modoDescuento === 'produccion_previa') {
+          devolucionRecetas[recetaId] = (devolucionRecetas[recetaId] || 0) + qty;
+          return;
+        }
 
         const scaleFactor = qty / rec.cantidadRendimiento;
 
@@ -685,10 +749,15 @@ class LocalDatabase {
       };
 
       for (const item of ventaToDelete.items) {
-        explotarReceta(item.recetaId, item.cantidadVendida);
+        const rec = recetas.find(r => r.id === item.recetaId);
+        if (rec && (rec.esSubReceta || rec.modoDescuento === 'produccion_previa')) {
+          devolucionRecetas[item.recetaId] = (devolucionRecetas[item.recetaId] || 0) + item.cantidadVendida;
+        } else {
+          explotarReceta(item.recetaId, item.cantidadVendida);
+        }
       }
 
-      // Devolver stock al catálogo
+      // Devolver stock al catálogo de ingredientes
       for (const ingId of Object.keys(resultDevolucion)) {
         const ingIdx = ingredientes.findIndex(i => i.id === ingId);
         if (ingIdx >= 0) {
@@ -696,8 +765,17 @@ class LocalDatabase {
           ingredientes[ingIdx].stockActual = (ing.stockActual || 0) + resultDevolucion[ingId];
         }
       }
-
       this.set(KEYS.INGREDIENTES, ingredientes);
+
+      // Devolver stock al catálogo de recetas
+      for (const recId of Object.keys(devolucionRecetas)) {
+        const recIdx = recetas.findIndex(r => r.id === recId);
+        if (recIdx >= 0) {
+          const rec = recetas[recIdx];
+          recetas[recIdx].stockActual = (rec.stockActual || 0) + devolucionRecetas[recId];
+        }
+      }
+      this.set(KEYS.RECETAS, recetas);
     }
 
     return filtradas;

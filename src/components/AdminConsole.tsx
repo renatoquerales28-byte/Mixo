@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/db';
-import type { ConfiguracionCostos, Ingrediente } from '../services/db';
+import type { ConfiguracionCostos, Ingrediente, Receta } from '../services/db';
 import { ComprasModule } from './admin/ComprasModule';
 import { MermasTab } from './admin/MermasTab';
 import { VentasTab } from './admin/VentasTab';
@@ -22,10 +22,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   activeSubTab,
 }) => {
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
+  const [recetas, setRecetas] = useState<Receta[]>([]);
 
   const loadCatalogos = async () => {
     const listIng = await db.getIngredientes();
+    const listRec = await db.getRecetas();
     setIngredientes(listIng);
+    setRecetas(listRec);
   };
 
   useEffect(() => {
@@ -43,6 +46,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       {activeSubTab === 'insumos'    && (
         <InsumosTab 
           ingredientes={ingredientes}
+          recetas={recetas}
           onRefresh={handleRefresh}
         />
       )}
