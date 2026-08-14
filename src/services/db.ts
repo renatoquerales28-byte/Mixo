@@ -398,15 +398,28 @@ class LocalDatabase {
   }
 
   constructor() {
-    // Inicializar semillas locales de contingencia
+    // Si el navegador tiene datos residuales de los mocks antiguos en localStorage, limpiarlos
+    const storedIngs = this.get<any[]>(KEYS.INGREDIENTES, []);
+    if (storedIngs.some(i => i.id === 'ing_tomate_chonto' || i.id === 'ing_pasta_lasana' || i.id === 'ing_carne_molida')) {
+      localStorage.removeItem(KEYS.INGREDIENTES);
+      localStorage.removeItem(KEYS.PROVEEDORES);
+      localStorage.removeItem(KEYS.RECETAS);
+      localStorage.removeItem(KEYS.FACTURAS);
+      localStorage.removeItem(KEYS.HISTORICO_PRECIOS);
+      localStorage.removeItem(KEYS.MERMAS);
+      localStorage.removeItem(KEYS.LOTES_PRODUCCION);
+      localStorage.removeItem(KEYS.VENTAS);
+    }
+
+    // Inicializar semillas vacías
     if (!localStorage.getItem(KEYS.INGREDIENTES)) {
-      this.set(KEYS.INGREDIENTES, INGREDIENTES_INICIALES);
+      this.set(KEYS.INGREDIENTES, []);
     }
     if (!localStorage.getItem(KEYS.CONFIGURACION)) {
       this.set(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
     }
     if (!localStorage.getItem(KEYS.PROVEEDORES)) {
-      this.set(KEYS.PROVEEDORES, PROVEEDORES_INICIALES);
+      this.set(KEYS.PROVEEDORES, []);
     }
     if (!localStorage.getItem(KEYS.RECETAS)) {
       this.set(KEYS.RECETAS, []);
