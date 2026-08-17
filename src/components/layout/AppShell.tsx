@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import logoBlanco from '../../assets/logo-blanco.svg';
@@ -49,158 +49,138 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
           <img
             src={theme === 'dark' ? logoBlanco : logoNegro}
             alt="Mixo"
-            style={{ width: '120px', height: 'auto', display: 'block', marginBottom: '8px' }}
+            style={{ maxWidth: '80%', height: 'auto', display: 'block', margin: '0 auto' }}
           />
         </div>
 
-        {/* Navegación Principal */}
-        <div className="sidebar-nav">
-          {/* Resumen General */}
-          <button
-            type="button"
-            className={`sidebar-nav-item ${pathname === '/resumen' || pathname === '/' ? 'active' : ''}`}
-            onClick={() => navigate('/resumen')}
-          >
-            <LayoutDashboard size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-            Resumen General
-          </button>
+        {/* Resumen General */}
+        <button
+          type="button"
+          className={`sidebar-nav-item ${pathname === '/resumen' || pathname === '/' ? 'active' : ''}`}
+          onClick={() => navigate('/resumen')}
+          title="Resumen General"
+        >
+          <LayoutDashboard size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+          Resumen General
+        </button>
 
-          {/* SECCIÓN COCINA */}
-          <div className="sidebar-section-header">COCINA</div>
+        {/* Sección Cocina */}
+        <div className="sidebar-section-label">Cocina</div>
 
-          {/* Recetario */}
-          <button
-            type="button"
-            className={`sidebar-nav-item ${pathname === '/recetas' ? 'active' : ''}`}
-            onClick={() => navigate('/recetas')}
-          >
-            <BookOpen size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-            Recetario
-          </button>
+        <button
+          type="button"
+          className={`sidebar-nav-item ${pathname === '/recetas' ? 'active' : ''}`}
+          onClick={() => navigate('/recetas')}
+        >
+          <BookOpen size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+          Recetario
+        </button>
 
-          {/* Producción */}
-          <button
-            type="button"
-            className={`sidebar-nav-item ${pathname === '/produccion' ? 'active' : ''}`}
-            onClick={() => navigate('/produccion')}
-          >
-            <FlameKindling size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-            Producción
-          </button>
+        <button
+          type="button"
+          className={`sidebar-nav-item ${pathname === '/produccion' ? 'active' : ''}`}
+          onClick={() => navigate('/produccion')}
+        >
+          <FlameKindling size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+          Producción
+        </button>
 
-          {/* Planificador */}
-          <button
-            type="button"
-            className={`sidebar-nav-item ${pathname === '/planificador' ? 'active' : ''}`}
-            onClick={() => navigate('/planificador')}
-          >
-            <CalendarDays size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-            Planificador
-          </button>
+        <button
+          type="button"
+          className={`sidebar-nav-item ${pathname === '/planificador' ? 'active' : ''}`}
+          onClick={() => navigate('/planificador')}
+        >
+          <CalendarDays size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+          Planificador
+        </button>
 
-          {/* SECCIÓN ADMINISTRACIÓN (Solo Admin) */}
-          {isAdmin && (
-            <>
-              <div className="sidebar-section-header">ADMINISTRACIÓN</div>
+        {/* Sección Administración (Solo visible para rol 'admin') */}
+        {isAdmin && (
+          <>
+            <div className="sidebar-section-label">Administración</div>
 
-              {/* Ventas */}
+            {/* Ventas */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname === '/ventas' ? 'active' : ''}`}
+              onClick={() => navigate('/ventas')}
+            >
+              <TrendingUp size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Ventas
+            </button>
+
+            {/* Compras — ítem expandible */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname.startsWith('/compras') ? 'active' : ''}`}
+              onClick={() => {
+                if (!comprasExpanded) {
+                  setComprasExpanded(true);
+                  navigate('/compras/facturas');
+                } else {
+                  setComprasExpanded(false);
+                }
+              }}
+            >
+              <ShoppingCart size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Compras
+              <span className={`sidebar-chevron ${comprasExpanded ? 'open' : ''}`}>›</span>
+            </button>
+
+            {/* Sub-ítems de Compras */}
+            {comprasExpanded && comprasSubTabs.map(sub => (
               <button
+                key={sub.path}
                 type="button"
-                className={`sidebar-nav-item ${pathname === '/ventas' ? 'active' : ''}`}
-                onClick={() => navigate('/ventas')}
+                className={`sidebar-sub-item ${pathname === sub.path ? 'active' : ''}`}
+                onClick={() => navigate(sub.path)}
               >
-                <TrendingUp size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                Ventas
+                <sub.Icon size={14} style={{ marginRight: '8px', opacity: 0.7, flexShrink: 0 }} />
+                {sub.label}
               </button>
+            ))}
 
-              {/* Compras (Desplegable) */}
-              <div>
-                <button
-                  type="button"
-                  className={`sidebar-nav-item ${pathname.startsWith('/compras') ? 'active' : ''}`}
-                  onClick={() => {
-                    if (!comprasExpanded) {
-                      setComprasExpanded(true);
-                      navigate('/compras/facturas');
-                    } else {
-                      setComprasExpanded(false);
-                    }
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center' }}>
-                    <ShoppingCart size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                    Compras
-                  </div>
-                  <span style={{ fontSize: '11px', opacity: 0.6, transition: 'transform 0.2s', transform: comprasExpanded ? 'rotate(90deg)' : 'none' }}>
-                    ›
-                  </span>
-                </button>
+            {/* Inventario */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname === '/inventario' ? 'active' : ''}`}
+              onClick={() => navigate('/inventario')}
+            >
+              <Package size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Inventario
+            </button>
 
-                {comprasExpanded && (
-                  <div style={{ paddingLeft: '14px', marginTop: '2px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    {comprasSubTabs.map(sub => {
-                      const SubIcon = sub.Icon;
-                      const isSubActive = pathname === sub.path;
-                      return (
-                        <button
-                          key={sub.path}
-                          type="button"
-                          className={`sidebar-nav-item ${isSubActive ? 'active' : ''}`}
-                          style={{ fontSize: '13px', padding: '6px 10px', height: '32px' }}
-                          onClick={() => navigate(sub.path)}
-                        >
-                          <SubIcon size={14} style={{ marginRight: '8px', opacity: 0.75, flexShrink: 0 }} />
-                          {sub.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+            {/* Mermas */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname === '/mermas' ? 'active' : ''}`}
+              onClick={() => navigate('/mermas')}
+            >
+              <Trash2 size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Mermas
+            </button>
 
-              {/* Inventario */}
-              <button
-                type="button"
-                className={`sidebar-nav-item ${pathname === '/inventario' ? 'active' : ''}`}
-                onClick={() => navigate('/inventario')}
-              >
-                <Package size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                Inventario
-              </button>
+            {/* Gastos Fijos */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname === '/gastos-fijos' ? 'active' : ''}`}
+              onClick={() => navigate('/gastos-fijos')}
+            >
+              <Settings size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Gastos Fijos
+            </button>
 
-              {/* Mermas */}
-              <button
-                type="button"
-                className={`sidebar-nav-item ${pathname === '/mermas' ? 'active' : ''}`}
-                onClick={() => navigate('/mermas')}
-              >
-                <Trash2 size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                Mermas
-              </button>
-
-              {/* Gastos Fijos */}
-              <button
-                type="button"
-                className={`sidebar-nav-item ${pathname === '/gastos-fijos' ? 'active' : ''}`}
-                onClick={() => navigate('/gastos-fijos')}
-              >
-                <Settings size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                Gastos Fijos
-              </button>
-
-              {/* Equipo */}
-              <button
-                type="button"
-                className={`sidebar-nav-item ${pathname === '/equipo' ? 'active' : ''}`}
-                onClick={() => navigate('/equipo')}
-              >
-                <Users size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
-                Equipo
-              </button>
-            </>
-          )}
-        </div>
+            {/* Equipo */}
+            <button
+              type="button"
+              className={`sidebar-nav-item ${pathname === '/equipo' ? 'active' : ''}`}
+              onClick={() => navigate('/equipo')}
+            >
+              <Users size={16} style={{ marginRight: '10px', opacity: 0.75, flexShrink: 0 }} />
+              Equipo
+            </button>
+          </>
+        )}
 
         {/* Footer del sidebar */}
         <div className="sidebar-footer">
@@ -216,8 +196,6 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
                 {user?.rol === 'admin' ? 'Administrador' : 'Chef de cocina'}
               </span>
             </div>
-
-            {/* Switch circular de tema */}
             <button
               type="button"
               className="sidebar-theme-switch"
@@ -228,21 +206,21 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
             </button>
           </div>
 
-          {/* Botón de Cerrar Sesión */}
+          {/* Botón Cerrar Sesión */}
           <button
             type="button"
             className="btn btn-secondary sidebar-logout-action-btn"
             onClick={logout}
-            title="Cerrar sesión en Mixo"
+            title="Cerrar sesión"
           >
-            <LogOut size={15} />
+            <LogOut size={14} />
             <span>Cerrar Sesión</span>
           </button>
         </div>
       </aside>
 
       {/* CONTENIDO PRINCIPAL */}
-      <main className="app-main">
+      <main className="app-content">
         <Outlet />
       </main>
     </div>
