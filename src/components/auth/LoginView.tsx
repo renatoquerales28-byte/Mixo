@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../hooks/useToast';
 import logoBlanco from '../../assets/logo-blanco.svg';
 import logoNegro from '../../assets/logo-negro.svg';
-import { Lock, Mail, Eye, EyeOff, Sun, Moon } from 'lucide-react';
+import { Lock, Mail, Eye, EyeOff, Sun, Moon, ArrowLeft } from 'lucide-react';
 
 interface LoginViewProps {
   theme: 'dark' | 'light';
@@ -13,6 +14,7 @@ interface LoginViewProps {
 export const LoginView: React.FC<LoginViewProps> = ({ theme, onToggleTheme }) => {
   const { login } = useAuth();
   const { showToast } = useToast();
+  const navigate = useNavigate();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,8 +41,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ theme, onToggleTheme }) =>
 
   return (
     <div className="login-page">
-      {/* Switch circular de tema en esquina superior */}
-      <div className="login-theme-toggle">
+      {/* Barra superior con Volver al Inicio y Switch de Tema */}
+      <div className="login-top-bar">
+        <button
+          type="button"
+          className="btn btn-secondary login-back-btn"
+          onClick={() => navigate('/')}
+          title="Volver a la página principal"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '13px',
+            height: '36px',
+            padding: '0 14px'
+          }}
+        >
+          <ArrowLeft size={16} />
+          <span>Volver al Inicio</span>
+        </button>
+
         <button
           type="button"
           className="sidebar-theme-switch"

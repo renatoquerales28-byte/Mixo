@@ -1425,4 +1425,100 @@ th.text-center, td.text-center {
   border-color: rgba(255, 138, 128, 0.4) !important;
 }
 
+/* ===========================
+   LANDING PAGE (PORTADA /)
+   =========================== */
+.landing-page {
+  min-height: 100vh;
+  width: 100vw;
+  background-color: var(--color-bg-base);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.landing-header {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 10;
+}
+
+.landing-login-btn {
+  height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--border-radius-button) !important;
+  padding: 0 20px;
+}
+
+.landing-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landing-center-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.landing-logo {
+  width: 220px;
+  height: auto;
+  user-select: none;
+  display: block;
+}
+
+.landing-loader-track {
+  width: 220px; /* Ancho exacto del logo de Mixo */
+  height: 3px;
+  background-color: var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.landing-loader-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 40%;
+  background: var(--color-accent);
+  border-radius: 4px;
+  animation: landing-infinite-scroll 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes landing-infinite-scroll {
+  0% {
+    left: -40%;
+    width: 30%;
+  }
+  50% {
+    width: 50%;
+  }
+  100% {
+    left: 100%;
+    width: 30%;
+  }
+}
+
+.login-top-bar {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+}
+
+
+
 
