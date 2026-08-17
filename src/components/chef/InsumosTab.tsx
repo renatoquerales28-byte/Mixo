@@ -46,20 +46,32 @@ export const InsumosTab: React.FC<InsumosTabProps> = ({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }}>
       <div className="mixo-card" style={{ padding: '24px', width: '100%' }}>
         {/* Cabecera Interna */}
-        <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '16px', marginBottom: '16px', alignItems: 'center' }}>
-          <h2>Inventario y Costos de Insumos</h2>
-          {activeInventoryTab === 'materias_primas' && (
-            <button 
-              type="button" 
-              className="btn btn-primary" 
-              onClick={() => {
-                setEditingIng(null);
-                setShowInsumoForm(true);
-              }}
-            >
-              + Nuevo Insumo
-            </button>
-          )}
+        <div 
+          className="flex-row-between" 
+          style={{ 
+            borderBottom: '1px solid var(--color-border)', 
+            paddingBottom: '16px', 
+            marginBottom: '16px', 
+            minHeight: '40px', 
+            alignItems: 'center',
+            boxSizing: 'content-box'
+          }}
+        >
+          <h2 style={{ margin: 0, lineHeight: 1.2 }}>Inventario y Costos de Insumos</h2>
+          <div style={{ minHeight: '40px', display: 'flex', alignItems: 'center' }}>
+            {activeInventoryTab === 'materias_primas' && (
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={() => {
+                  setEditingIng(null);
+                  setShowInsumoForm(true);
+                }}
+              >
+                + Nuevo Insumo
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabs internas */}

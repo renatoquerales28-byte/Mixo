@@ -10,7 +10,7 @@ interface VentasTabProps {
 
 export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
   const { showToast } = useToast();
-  const [subTab, setSubTab] = useState<'registro' | 'precios'>('registro');
+  const [subTab, setSubTab] = useState<'registro' | 'precios' | 'analisis_menu'>('registro');
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [ventas, setVentas] = useState<any[]>([]);
   const [recetaCostos, setRecetaCostos] = useState<{ [id: string]: number }>({});
@@ -184,6 +184,27 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
           }}
         >
           Precios y Rentabilidad (Menú)
+        </button>
+        <button 
+          type="button" 
+          onClick={() => setSubTab('analisis_menu')}
+          style={{
+            padding: '10px 20px',
+            fontSize: '14px',
+            fontWeight: subTab === 'analisis_menu' ? '600' : '400',
+            color: subTab === 'analisis_menu' ? 'var(--color-accent)' : 'var(--color-text-secondary)',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: subTab === 'analisis_menu'
+              ? '2px solid var(--color-accent)'
+              : '2px solid transparent',
+            borderRadius: '0',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            marginBottom: '-1px',
+          }}
+        >
+          Análisis de Menú (Matriz BCG)
         </button>
       </div>
 
@@ -399,7 +420,7 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
             </div>
           </div>
         </div>
-      ) : (
+      ) : subTab === 'precios' ? (
         /* Precios y Rentabilidad */
         <div className="mixo-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           <h2>Precios y Rentabilidad de Platos</h2>
@@ -425,28 +446,23 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
                   </tr>
                 ) : (
                   recetas.map(rec => {
-                    const costoTotal = recetaCostos[rec.id] || 0;
-                    const costoUnitario = costoTotal / (rec.cantidadRendimiento || 1);
-                    const currentPrice = tempPrices[rec.id] !== undefined 
-                      ? tempPrices[rec.id] 
-                      : (rec.precioVentaMenu !== undefined ? rec.precioVentaMenu.toString() : '');
-                    
+                    const costoUnitario = recetaCostos[rec.id] || 0;
+                    const currentPrice = tempPrices[rec.id] !== undefined ? tempPrices[rec.id] : (rec.precioVentaMenu || '');
                     const priceNum = Number(currentPrice) || 0;
                     const foodCostPct = priceNum > 0 ? (costoUnitario / priceNum) * 100 : 0;
-                    const margen = priceNum > 0 ? (priceNum - costoUnitario) : 0;
+                    const margen = priceNum > 0 ? priceNum - costoUnitario : 0;
 
-                    // Colores semáforo para el Food Cost %
                     let badgeColor = 'var(--color-text-secondary)';
                     let badgeBg = 'var(--color-bg-transparent)';
                     if (priceNum > 0) {
                       if (foodCostPct <= 30) {
-                        badgeColor = '#81c784'; // Verde
+                        badgeColor = '#81c784';
                         badgeBg = 'rgba(129, 199, 132, 0.1)';
-                      } else if (foodCostPct <= 35) {
-                        badgeColor = '#ffb74d'; // Amarillo
-                        badgeBg = 'rgba(255, 183, 77, 0.1)';
+                      } else if (foodCostPct <= 40) {
+                        badgeColor = '#ffb300';
+                        badgeBg = 'rgba(255, 179, 0, 0.1)';
                       } else {
-                        badgeColor = '#e57373'; // Rojo
+                        badgeColor = '#e57373';
                         badgeBg = 'rgba(229, 115, 115, 0.1)';
                       }
                     }
@@ -527,6 +543,154 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
             </table>
           </div>
         </div>
+      ) : (
+        /* Análisis de Menú (Matriz BCG) */
+        (() => {
+          const platosFinales = recetas.filter(r => !r.esSubReceta);
+          const platesStats = platosFinales.map(rec => {
+            const costoPorcion = recetaCostos[rec.id] || 0;
+            let totalVolume = 0;
+            ventas.forEach(v => {
+              v.items?.forEach((it: any) => {
+                if (it.recetaId === rec.id) totalVolume += Number(it.cantidadVendida || 0);
+              });
+            });
+            const precioMenu = rec.precioVentaMenu || 0;
+            const margin = precioMenu - costoPorcion;
+            const foodCostPct = precioMenu > 0 ? (costoPorcion / precioMenu) * 100 : 0;
+            return { rec, totalVolume, margin, costoPorcion, precioMenu, foodCostPct };
+          });
+
+          const n = platesStats.length;
+          const avgVol = n > 0 ? platesStats.reduce((a, c) => a + c.totalVolume, 0) / n : 0;
+          const avgMar = n > 0 ? platesStats.reduce((a, c) => a + c.margin, 0) / n : 0;
+
+          const cuadrantes = [
+            {
+              key: 'estrella',
+              label: '⭐ Platos Estrella',
+              desc: 'Platos favoritos y rentables. Mantener calidad exacta y alta visibilidad.',
+              color: '#81c784',
+              bg: 'rgba(129, 199, 132, 0.05)',
+              border: 'rgba(129, 199, 132, 0.25)',
+              items: platesStats.filter(p => p.totalVolume >= avgVol && p.margin >= avgMar)
+            },
+            {
+              key: 'rompecabeza',
+              label: '🧩 Rompecabezas (Puzzles)',
+              desc: 'Muy rentables pero poco pedidos. Promocionar con meseros o destacar en carta.',
+              color: 'var(--color-accent)',
+              bg: 'rgba(168, 199, 250, 0.05)',
+              border: 'rgba(168, 199, 250, 0.25)',
+              items: platesStats.filter(p => p.totalVolume < avgVol && p.margin >= avgMar)
+            },
+            {
+              key: 'caballo',
+              label: '🐴 Caballos de Batalla',
+              desc: 'Muy populares pero bajo margen. Subir ligeramente el precio o ajustar costos.',
+              color: '#ffb300',
+              bg: 'rgba(255, 179, 0, 0.05)',
+              border: 'rgba(255, 179, 0, 0.25)',
+              items: platesStats.filter(p => p.totalVolume >= avgVol && p.margin < avgMar)
+            },
+            {
+              key: 'perro',
+              label: '🐶 Perros (Baja Rentabilidad)',
+              desc: 'Poca demanda y poco margen. Candidatos a renovar, reemplazar o retirar.',
+              color: '#ef5350',
+              bg: 'rgba(239, 83, 80, 0.05)',
+              border: 'rgba(239, 83, 80, 0.25)',
+              items: platesStats.filter(p => p.totalVolume < avgVol && p.margin < avgMar)
+            }
+          ];
+
+          return (
+            <div className="mixo-card" style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+              <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '16px' }}>
+                <div>
+                  <h2>Ingeniería de Menú (Matriz BCG)</h2>
+                  <span className="text-secondary" style={{ fontSize: '13px' }}>
+                    Clasificación estratégica cruzando popularidad (volumen de ventas) vs. rentabilidad (margen neto por plato).
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--color-text-secondary)', alignItems: 'center' }}>
+                  <span>Volumen medio: <strong style={{ color: 'var(--color-text-primary)' }}>{avgVol.toFixed(1)} porc.</strong></span>
+                  <span>Margen medio: <strong style={{ color: 'var(--color-text-primary)' }}>${avgMar.toFixed(2)}</strong></span>
+                </div>
+              </div>
+
+              {ventas.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px', color: 'var(--color-text-secondary)' }}>
+                  Registra reportes de venta en la pestaña «Registro de Ventas» para calcular la matriz BCG de tu carta.
+                </div>
+              ) : (
+                <div className="grid-cols-2" style={{ gap: '16px', flex: 1, overflowY: 'auto' }}>
+                  {cuadrantes.map(q => (
+                    <div
+                      key={q.key}
+                      className="mixo-card"
+                      style={{
+                        backgroundColor: q.bg,
+                        border: `1px solid ${q.border}`,
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'column'
+                      }}
+                    >
+                      <div style={{ marginBottom: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ color: q.color, fontSize: '15px' }}>{q.label}</strong>
+                          <span className="badge" style={{ fontSize: '11px', borderColor: q.color, color: q.color }}>
+                            {q.items.length} {q.items.length === 1 ? 'plato' : 'platos'}
+                          </span>
+                        </div>
+                        <div className="text-secondary" style={{ fontSize: '12px', marginTop: '4px' }}>
+                          {q.desc}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1, overflowY: 'auto', maxHeight: '220px' }}>
+                        {q.items.length === 0 ? (
+                          <span className="text-secondary" style={{ fontSize: '12px', fontStyle: 'italic', padding: '8px 0' }}>
+                            Sin platos en este cuadrante.
+                          </span>
+                        ) : (
+                          q.items.map(p => (
+                            <div
+                              key={p.rec.id}
+                              className="flex-row-between"
+                              style={{
+                                fontSize: '13px',
+                                borderBottom: '1px solid var(--color-border)',
+                                paddingBottom: '6px',
+                                paddingTop: '2px'
+                              }}
+                            >
+                              <div>
+                                <strong>{p.rec.nombre}</strong>
+                                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                                  Precio: ${p.precioMenu.toFixed(2)} | Costo: ${p.costoPorcion.toFixed(2)}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontWeight: 600, color: p.margin >= 0 ? 'var(--color-text-primary)' : '#e57373' }}>
+                                  +${p.margin.toFixed(2)}
+                                </span>
+                                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                                  {p.totalVolume} porc. vendidas
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()
       )}
 
       {/* Modal de confirmación para eliminar reporte */}

@@ -7,14 +7,16 @@ import { VentasTab } from './admin/VentasTab';
 import { FinancieroTab } from './admin/FinancieroTab';
 import { InsumosTab } from './chef/InsumosTab';
 
+import { UsuariosTab } from './admin/UsuariosTab';
+
 type ComprasSubTab = 'facturas' | 'proveedores' | 'historial' | 'historial_precios';
 
 interface AdminConsoleProps {
   config: ConfiguracionCostos;
   onUpdateConfig: (newConfig: ConfiguracionCostos) => void;
   onRefreshData?: () => void;
-  activeSubTab: 'compras' | 'insumos' | 'ventas' | 'mermas' | 'financiero';
-  onChangeSubTab: (tab: 'compras' | 'insumos' | 'ventas' | 'mermas' | 'financiero') => void;
+  activeSubTab: 'compras' | 'insumos' | 'ventas' | 'mermas' | 'financiero' | 'usuarios';
+  onChangeSubTab: (tab: 'compras' | 'insumos' | 'ventas' | 'mermas' | 'financiero' | 'usuarios') => void;
   activeComprasSubTab?: ComprasSubTab;
 }
 
@@ -59,6 +61,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       {activeSubTab === 'financiero' && (
         <FinancieroTab config={config} onUpdateConfig={onUpdateConfig} />
       )}
+      {activeSubTab === 'usuarios'   && <UsuariosTab />}
     </>
   );
 };

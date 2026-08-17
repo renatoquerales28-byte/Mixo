@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { db } from '../../services/db';
+import React, { useState } from 'react';
 import type { Receta, Ingrediente, ConfiguracionCostos } from '../../services/db';
 import { CustomSelect } from '../CustomSelect';
 
@@ -23,12 +22,6 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
   const [selectedRecetaId, setSelectedRecetaId] = useState<string>('');
   const [cantidadObjetivo, setCantidadObjetivo] = useState<number | string>('1');
   const [desglosarSubRecetas, setDesglosarSubRecetas] = useState<boolean>(true);
-  const [ventas, setVentas] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'planificador' | 'matriz_bcg'>('planificador');
-
-  useEffect(() => {
-    db.getVentas().then(setVentas);
-  }, []);
 
   // --- CÁLCULOS MATEMÁTICOS DE COSTEO SÍNCRONOS ---
   const getCostoIngredienteSync = (ing: Ingrediente, qty: number) => {
@@ -155,52 +148,9 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
     window.print();
   };
 
-  const tabs = [
-    { key: 'planificador' as const, label: 'Planificador de Compras' },
-    { key: 'matriz_bcg' as const, label: 'Ingeniería de Menú (Matriz BCG)' }
-  ];
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }} className="no-print">
-      {/* Tabs internas */}
-      <div
-        className="tab-navigation"
-        style={{
-          display: 'flex',
-          gap: '4px',
-          borderBottom: '1px solid var(--color-border)',
-          marginBottom: '8px',
-          paddingBottom: '0',
-        }}
-      >
-        {tabs.map(tab => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            style={{
-              padding: '10px 20px',
-              fontSize: '14px',
-              fontWeight: activeTab === tab.key ? '600' : '400',
-              color: activeTab === tab.key ? 'var(--color-accent)' : 'var(--color-text-secondary)',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: activeTab === tab.key
-                ? '2px solid var(--color-accent)'
-                : '2px solid transparent',
-              borderRadius: '0',
-              cursor: 'pointer',
-              transition: 'all 0.15s ease',
-              marginBottom: '-1px',
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'planificador' && (
-        <div className="mixo-card" style={{ padding: '24px', width: '100%' }}>
+      <div className="mixo-card" style={{ padding: '24px', width: '100%' }}>
         <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '16px', marginBottom: '16px' }}>
           <h2>Planificador de Compras e Insumos</h2>
           {selectedRecetaId && ingredientesPlanificados.length > 0 && (
@@ -383,7 +333,6 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
           )
         ) : null}
       </div>
-      )}
 
       {/* VISTA DE IMPRESIÓN EXCLUSIVA */}
       <style>{`
@@ -488,82 +437,6 @@ export const PlanificadorTab: React.FC<PlanificadorTabProps> = ({ recetas, ingre
           </table>
         </div>
       )}
-
-      {/* Matriz de Ingeniería de Menú (BCG) */}
-      {activeTab === 'matriz_bcg' && (() => {
-        const finalRecipes = recetas.filter(r => !r.esSubReceta);
-        const platesStats = finalRecipes.map(rec => {
-          let costoLote = 0;
-          const calcCosto = (items: typeof rec.ingredientes): number => {
-            let t = 0;
-            items.forEach(item => {
-              if (item.esRecetaAnidada) {
-                const sub = recetas.find(r => r.id === item.ingredienteId);
-                if (sub) { const sc = calcCosto(sub.ingredientes); t += (sc / sub.cantidadRendimiento) * item.cantidadRequerida; }
-              } else {
-                const ing = ingredientes.find(i => i.id === item.ingredienteId);
-                if (ing) t += (ing.precioActivo || 0) * item.cantidadRequerida;
-              }
-            });
-            return t;
-          };
-          costoLote = calcCosto(rec.ingredientes);
-          const costoPorcion = rec.cantidadRendimiento > 0 ? costoLote / rec.cantidadRendimiento : 0;
-          let totalVolume = 0;
-          ventas.forEach(v => v.items?.forEach((it: any) => { if (it.recetaId === rec.id) totalVolume += it.cantidadVendida; }));
-          const margin = (rec.precioVentaMenu || 0) - costoPorcion;
-          return { rec, totalVolume, margin, costoPorcion };
-        });
-        const n = platesStats.length;
-        const avgVol = n > 0 ? platesStats.reduce((a, c) => a + c.totalVolume, 0) / n : 0;
-        const avgMar = n > 0 ? platesStats.reduce((a, c) => a + c.margin, 0) / n : 0;
-        const cuadrantes = [
-          { key: 'estrella',    label: '⭐ Estrella',           sub: 'Alta venta, alto margen',   color: '#81c784', bg: 'rgba(129,199,132,0.04)', border: 'rgba(129,199,132,0.15)', items: platesStats.filter(p => p.totalVolume >= avgVol && p.margin >= avgMar) },
-          { key: 'rompecabeza',label: '🧩 Rompecabezas',       sub: 'Baja venta, alto margen',   color: 'var(--color-accent)', bg: 'rgba(168,199,250,0.04)', border: 'rgba(168,199,250,0.15)', items: platesStats.filter(p => p.totalVolume < avgVol && p.margin >= avgMar) },
-          { key: 'caballo',    label: '🐴 Caballo de Batalla', sub: 'Alta venta, bajo margen',   color: '#ffb300', bg: 'rgba(255,179,0,0.04)', border: 'rgba(255,179,0,0.15)', items: platesStats.filter(p => p.totalVolume >= avgVol && p.margin < avgMar) },
-          { key: 'perro',      label: '🐶 Perro',              sub: 'Baja venta, bajo margen',   color: '#ef5350', bg: 'rgba(239,83,80,0.04)', border: 'rgba(239,83,80,0.15)', items: platesStats.filter(p => p.totalVolume < avgVol && p.margin < avgMar) },
-        ];
-        return (
-          <div className="mixo-card" style={{ marginTop: '0' }}>
-            <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '16px' }}>
-              <div>
-                <h2>Ingeniería de Menú (Matriz BCG)</h2>
-                <span className="text-secondary" style={{ fontSize: '13px' }}>Clasificación estratégica de platos por popularidad vs. rentabilidad.</span>
-              </div>
-              <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                <span>Vol. medio: <strong>{avgVol.toFixed(1)} porc.</strong></span>
-                <span>Margen medio: <strong>${avgMar.toFixed(2)}</strong></span>
-              </div>
-            </div>
-            {ventas.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '36px', color: 'var(--color-text-secondary)' }}>
-                Registra ventas en la sección de Administración para activar esta matriz.
-              </div>
-            ) : (
-              <div className="grid-cols-2" style={{ gap: '16px' }}>
-                {cuadrantes.map(q => (
-                  <div key={q.key} className="mixo-card" style={{ backgroundColor: q.bg, border: `1px solid ${q.border}`, padding: '16px' }}>
-                    <div style={{ marginBottom: '10px' }}>
-                      <strong style={{ color: q.color, fontSize: '14px' }}>{q.label}</strong>
-                      <div className="text-secondary" style={{ fontSize: '12px', marginTop: '2px' }}>{q.sub}</div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-                      {q.items.length === 0 ? (
-                        <span className="text-secondary" style={{ fontSize: '12px', fontStyle: 'italic' }}>Sin platos en este cuadrante.</span>
-                      ) : q.items.map(p => (
-                        <div key={p.rec.id} className="flex-row-between" style={{ fontSize: '13px', borderBottom: '1px solid var(--color-border)', paddingBottom: '6px' }}>
-                          <span><strong>{p.rec.nombre}</strong></span>
-                          <span className="text-secondary" style={{ fontSize: '12px' }}>{p.totalVolume} porc. / +${p.margin.toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 };
