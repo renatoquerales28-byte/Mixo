@@ -177,9 +177,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
                   </div>
                 ))}
                 {insumosSinCosto.length > 3 && (
-                  <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                    y {insumosSinCosto.length - 3} insumos más...
-                  </div>
+                  <button
+                    className="btn btn-action"
+                    style={{ width: '100%', fontSize: '12px', marginTop: '4px', textAlign: 'center' }}
+                    onClick={() => onSwitchTab('insumos')}
+                  >
+                    Ver {insumosSinCosto.length - 3} insumos más →
+                  </button>
                 )}
               </div>
             )}
@@ -218,9 +222,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               ))
             )}
             {insumosBajoStock.length > 3 && (
-              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                y {insumosBajoStock.length - 3} insumos más...
-              </div>
+              <button
+                className="btn btn-action"
+                style={{ width: '100%', fontSize: '12px', marginTop: '4px', textAlign: 'center' }}
+                onClick={() => onSwitchTab('insumos')}
+              >
+                Ver {insumosBajoStock.length - 3} insumos más →
+              </button>
             )}
           </div>
         </div>
@@ -266,9 +274,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               })
             )}
             {insumosVencimiento.length > 3 && (
-              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                y {insumosVencimiento.length - 3} alertas más...
-              </div>
+              <button
+                className="btn btn-action"
+                style={{ width: '100%', fontSize: '12px', marginTop: '4px', textAlign: 'center' }}
+                onClick={() => onSwitchTab('insumos')}
+              >
+                Ver {insumosVencimiento.length - 3} alertas más →
+              </button>
             )}
           </div>
         </div>
@@ -311,9 +323,13 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
               })
             )}
             {recetasBajoStock.length > 3 && (
-              <div className="text-center" style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                y {recetasBajoStock.length - 3} platos más que necesitan producción...
-              </div>
+              <button
+                className="btn btn-action"
+                style={{ width: '100%', fontSize: '12px', marginTop: '4px', textAlign: 'center' }}
+                onClick={() => onSwitchTab('lotes')}
+              >
+                Ver {recetasBajoStock.length - 3} platos más →
+              </button>
             )}
           </div>
         </div>

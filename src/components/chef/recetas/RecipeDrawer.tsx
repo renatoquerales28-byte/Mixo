@@ -3,6 +3,7 @@ import { db } from '../../../services/db';
 import type { Ingrediente, Receta, PasoPreparacion, IngredienteReceta } from '../../../services/db';
 import { CustomSelect } from '../../CustomSelect';
 import { QuickIngredientDrawer } from './QuickIngredientDrawer';
+import { ConfirmModal } from '../../ConfirmModal';
 
 interface RecipeDrawerProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
   onRefresh
 }) => {
   const [drawerTab, setDrawerTab] = useState<'general' | 'ingredientes' | 'preparacion'>('general');
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingClose, setPendingClose] = useState(false);
   const [recetaForm, setRecetaForm] = useState({
     nombre: '',
     esSubReceta: false,
@@ -78,6 +81,14 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
       }
     }
   }, [editingReceta, isOpen]);
+
+  const handleClose = () => {
+    if (isDirty) {
+      setPendingClose(true);
+    } else {
+      onClose();
+    }
+  };
 
   const handleOpenQuickIngredient = (rowIndex: number) => {
     setQuickRegisterRowIndex(rowIndex);
@@ -198,6 +209,7 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
     };
 
     await db.saveReceta(nuevaReceta);
+    setIsDirty(false);
     onRefresh();
     onClose();
   };
@@ -209,7 +221,7 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
       {/* Backdrop del Drawer */}
       <div 
         className={`drawer-backdrop ${isDrawerOpen ? 'open' : ''}`} 
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Drawer Panel (Ancho / Wide) */}
@@ -221,7 +233,7 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
               <button 
                 type="button" 
                 className="drawer-close-btn" 
-                onClick={onClose}
+                onClick={handleClose}
               >
                 ×
               </button>
@@ -298,7 +310,7 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
                     type="text" 
                     placeholder="ej. Pasta Boloñesa, Salsa de Ajo Base"
                     value={recetaForm.nombre}
-                    onChange={e => setRecetaForm({ ...recetaForm, nombre: e.target.value })}
+                    onChange={e => { setRecetaForm({ ...recetaForm, nombre: e.target.value }); setIsDirty(true); }}
                     required
                   />
                 </div>
@@ -690,6 +702,17 @@ export const RecipeDrawer: React.FC<RecipeDrawerProps> = ({
         }}
         onSave={handleQuickIngredientSave}
         ingredientes={ingredientes}
+      />
+
+      <ConfirmModal
+        isOpen={pendingClose}
+        title="¿Cerrar sin guardar?"
+        message="Tienes cambios en esta receta sin guardar. Si cierras ahora, se perderán."
+        confirmText="Descartar cambios"
+        cancelText="Seguir editando"
+        isDanger={false}
+        onCancel={() => setPendingClose(false)}
+        onConfirm={() => { setPendingClose(false); setIsDirty(false); onClose(); }}
       />
     </>
   );

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../services/db';
 import type { Proveedor, Ingrediente, FacturaCompra } from '../../services/db';
 import { CustomSelect } from '../CustomSelect';
+import { useToast } from '../../hooks/useToast';
 
 interface ComprasTabProps {
   onRefresh?: () => void;
@@ -18,6 +19,7 @@ interface CompraItemState {
 }
 
 export const ComprasTab: React.FC<ComprasTabProps> = ({ onRefresh }) => {
+  const { showToast } = useToast();
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [selectedProveedor, setSelectedProveedor] = useState('');
@@ -43,7 +45,7 @@ export const ComprasTab: React.FC<ComprasTabProps> = ({ onRefresh }) => {
   const handleAddItemCompra = () => {
     if (ingredientes.length === 0) return;
     const firstIng = ingredientes[0];
-    setCompraItems([{
+    setCompraItems([...compraItems, {
       ingredienteId: firstIng.id,
       empaque: 'Caja',
       cantidadEmpaques: '',
@@ -51,7 +53,7 @@ export const ComprasTab: React.FC<ComprasTabProps> = ({ onRefresh }) => {
       unidadContenido: firstIng.unidadReceta === 'g' ? 'g' : firstIng.unidadReceta === 'ml' ? 'ml' : 'unidad',
       precioTotal: '',
       fechaVencimiento: ''
-    }, ...compraItems]);
+    }]);
   };
 
   const handleRemoveItemCompra = (index: number) => {
@@ -112,7 +114,7 @@ export const ComprasTab: React.FC<ComprasTabProps> = ({ onRefresh }) => {
     setFacturaNumero('');
     setCompraItems([]);
     if (onRefresh) onRefresh();
-    alert('Factura guardada con éxito. Inventario actualizado.');
+    showToast('Factura guardada. Inventario actualizado.', 'success');
   };
 
   return (

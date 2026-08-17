@@ -3,6 +3,7 @@ import { db } from '../../services/db';
 import type { Ingrediente, Receta, LoteProduccion, IngredienteReceta } from '../../services/db';
 import { CustomSelect } from '../CustomSelect';
 import { ConfirmModal } from '../ConfirmModal';
+import { useToast } from '../../hooks/useToast';
 
 interface LotesTabProps {
   lotesProduccion: LoteProduccion[];
@@ -17,7 +18,10 @@ export const LotesTab: React.FC<LotesTabProps> = ({
   ingredientes,
   onRefresh
 }) => {
+  const { showToast } = useToast();
   const [showLoteForm, setShowLoteForm] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingClose, setPendingClose] = useState(false);
   const [loteToDelete, setLoteToDelete] = useState<LoteProduccion | null>(null);
   const [selectedRecetaId, setSelectedRecetaId] = useState('');
   const [loteCantidadProducida, setLoteCantidadProducida] = useState<number | string>(1);
@@ -129,8 +133,9 @@ export const LotesTab: React.FC<LotesTabProps> = ({
     setSelectedRecetaId('');
     setLoteCantidadProducida(1);
     setLoteInsumos([]);
+    setIsDirty(false);
     onRefresh();
-    alert('Lote de producción registrado con éxito. Los costos reales del plato han sido actualizados.');
+    showToast('Lote registrado. Costos actualizados.', 'success');
   };
 
   const handleDeleteLote = (lote: LoteProduccion) => {
@@ -153,10 +158,15 @@ export const LotesTab: React.FC<LotesTabProps> = ({
   const paginatedLotes = filteredLotes.slice(startIndex, startIndex + itemsPerPage);
 
   const handleCloseDrawer = () => {
-    setShowLoteForm(false);
-    setSelectedRecetaId('');
-    setLoteCantidadProducida(1);
-    setLoteInsumos([]);
+    if (isDirty) {
+      setPendingClose(true);
+    } else {
+      setShowLoteForm(false);
+      setSelectedRecetaId('');
+      setLoteCantidadProducida(1);
+      setLoteInsumos([]);
+      setIsDirty(false);
+    }
   };
 
   return (
@@ -331,21 +341,30 @@ export const LotesTab: React.FC<LotesTabProps> = ({
                   <input 
                     type="date"
                     value={loteFecha}
-                    onChange={e => setLoteFecha(e.target.value)}
+                    onChange={e => { setLoteFecha(e.target.value); setIsDirty(true); }}
                     required
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Porciones Producidas</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    min="0.01"
-                    value={loteCantidadProducida}
-                    onChange={e => setLoteCantidadProducida(e.target.value)}
-                    required
-                  />
+                {/* Label dinámico según unidad de rendimiento */}
+                {(() => {
+                  const recSel = recetas.find(r => r.id === selectedRecetaId);
+                  const labelCantidad = !recSel ? 'Cantidad Producida'
+                    : recSel.unidadRendimiento === 'porciones' ? 'Porciones Producidas'
+                    : recSel.unidadRendimiento === 'litro'     ? 'Litros Producidos'
+                    : recSel.unidadRendimiento === 'kg'        ? 'Kilogramos Producidos'
+                    : `Cantidad Producida (${recSel.unidadRendimiento})`;
+                  return <label>{labelCantidad}</label>;
+                })()}
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={loteCantidadProducida}
+                  onChange={e => { setLoteCantidadProducida(e.target.value); setIsDirty(true); }}
+                  required
+                />
                 </div>
 
                 <div className="mixo-card" style={{ padding: '16px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border)' }}>
@@ -461,6 +480,25 @@ export const LotesTab: React.FC<LotesTabProps> = ({
             setLoteToDelete(null);
             onRefresh();
           }
+        }}
+      />
+
+      {/* Warning: cambios sin guardar */}
+      <ConfirmModal
+        isOpen={pendingClose}
+        title="¿Cerrar sin guardar?"
+        message="Tienes cambios sin guardar. Si cierras ahora, se perderán."
+        confirmText="Descartar cambios"
+        cancelText="Seguir editando"
+        isDanger={false}
+        onCancel={() => setPendingClose(false)}
+        onConfirm={() => {
+          setPendingClose(false);
+          setShowLoteForm(false);
+          setSelectedRecetaId('');
+          setLoteCantidadProducida(1);
+          setLoteInsumos([]);
+          setIsDirty(false);
         }}
       />
     </div>

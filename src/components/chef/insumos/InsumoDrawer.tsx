@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../../services/db';
 import type { Ingrediente } from '../../../services/db';
 import { CustomSelect } from '../../CustomSelect';
+import { ConfirmModal } from '../../ConfirmModal';
 
 interface InsumoDrawerProps {
   isOpen: boolean;
@@ -20,32 +21,25 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
 }) => {
   const [editingIngInPanel, setEditingIngInPanel] = useState<Ingrediente | null>(null);
   const [refSearch, setRefSearch] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingClose, setPendingClose] = useState(false);
   const [ingForm, setIngForm] = useState({
     nombre: '',
     unidadReceta: 'g',
     stockMinimo: '' as string | number,
-    precioReferencia: '' as string | number,
     conservacion: 'secos' as 'secos' | 'refrigerado' | 'congelado',
     perecibilidad: 'media' as 'alta' | 'media' | 'baja',
     diasVidaUtil: '' as string | number
   });
 
-  const getPrecioReferencia = (ing: Ingrediente) => {
-    if (!ing.precioActivo) return '';
-    if (ing.unidadReceta === 'g' || ing.unidadReceta === 'ml') {
-      return (ing.precioActivo * 1000).toFixed(2);
-    }
-    return ing.precioActivo.toFixed(2);
-  };
-
   const resetForm = () => {
     setEditingIngInPanel(null);
     setRefSearch('');
+    setIsDirty(false);
     setIngForm({
       nombre: '',
       unidadReceta: 'g',
       stockMinimo: '',
-      precioReferencia: '',
       conservacion: 'secos',
       perecibilidad: 'media',
       diasVidaUtil: ''
@@ -59,7 +53,6 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
         nombre: editingIng.nombre,
         unidadReceta: editingIng.unidadReceta,
         stockMinimo: editingIng.stockMinimo !== undefined ? editingIng.stockMinimo : '',
-        precioReferencia: getPrecioReferencia(editingIng),
         conservacion: editingIng.conservacion || 'secos',
         perecibilidad: editingIng.perecibilidad || 'media',
         diasVidaUtil: editingIng.diasVidaUtil !== undefined ? editingIng.diasVidaUtil : ''
@@ -71,17 +64,8 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
 
   const handleSaveIngrediente = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ingForm.nombre) return;
-
-    const refPrice = ingForm.precioReferencia !== '' ? Number(ingForm.precioReferencia) : undefined;
-    let precioCalculado = (editingIng || editingIngInPanel)?.precioActivo || 0;
-    if (refPrice !== undefined) {
-      if (ingForm.unidadReceta === 'g' || ingForm.unidadReceta === 'ml') {
-        precioCalculado = refPrice / 1000;
-      } else {
-        precioCalculado = refPrice;
-      }
-    }
+    if (!ingForm.nombre.trim()) return;
+    const precioCalculado = (editingIng || editingIngInPanel)?.precioActivo || 0;
 
     await db.saveIngrediente({
       id: (editingIng || editingIngInPanel)?.id || 'ing_' + Math.random().toString(36).substr(2, 9),
@@ -103,14 +87,30 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
   };
 
   const handleCloseDrawer = () => {
-    resetForm();
-    onClose();
+    if (isDirty) {
+      setPendingClose(true);
+    } else {
+      resetForm();
+      onClose();
+    }
   };
 
   const activeIng = editingIng || editingIngInPanel;
 
   return (
     <>
+      <ConfirmModal
+        isOpen={pendingClose}
+        title="¿Descartar cambios?"
+        message="Tienes cambios sin guardar. ¿Estás seguro que deseas cerrar?"
+        onConfirm={() => {
+          setPendingClose(false);
+          resetForm();
+          onClose();
+        }}
+        onCancel={() => setPendingClose(false)}
+      />
+
       {/* Backdrop del Drawer */}
       <div 
         className={`drawer-backdrop ${isOpen ? 'open' : ''}`} 
@@ -156,11 +156,11 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
                       nombre: '',
                       unidadReceta: 'g',
                       stockMinimo: '',
-                      precioReferencia: '',
                       conservacion: 'secos',
                       perecibilidad: 'media',
                       diasVidaUtil: ''
                     });
+                    setIsDirty(false);
                   }}
                   style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: '20px', lineHeight: 1, padding: '0' }}
                 >
@@ -175,7 +175,7 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
                 type="text" 
                 placeholder="ej. Tomate Chonto, Lomo Res" 
                 value={ingForm.nombre}
-                onChange={e => setIngForm({ ...ingForm, nombre: e.target.value })}
+                onChange={e => { setIngForm({ ...ingForm, nombre: e.target.value }); setIsDirty(true); }}
                 required
               />
             </div>
@@ -237,27 +237,6 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
                 value={ingForm.unidadReceta}
                 onChange={val => setIngForm(prev => ({ ...prev, unidadReceta: val }))}
               />
-            </div>
-
-            <div className="form-group" style={{ marginTop: '16px' }}>
-              <label>Costo de Compra de Referencia ($)</label>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>$</span>
-                <input 
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={ingForm.precioReferencia}
-                  onChange={e => setIngForm(prev => ({ ...prev, precioReferencia: e.target.value }))}
-                  style={{ flexGrow: 1 }}
-                />
-              </div>
-              <span className="text-secondary" style={{ fontSize: '11px', marginTop: '4px', display: 'block' }}>
-                {ingForm.unidadReceta === 'g' && 'Costo de referencia por Kilogramo (kg). Se dividirá por 1000 para recetas.'}
-                {ingForm.unidadReceta === 'ml' && 'Costo de referencia por Litro (L). Se dividirá por 1000 para recetas.'}
-                {ingForm.unidadReceta === 'unidad' && 'Costo de referencia por Unidad.'}
-              </span>
             </div>
 
             {/* Referencia de insumos ya registrados */}
@@ -338,7 +317,6 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
                                       nombre: ing.nombre,
                                       unidadReceta: ing.unidadReceta,
                                       stockMinimo: ing.stockMinimo !== undefined ? ing.stockMinimo : '',
-                                      precioReferencia: getPrecioReferencia(ing),
                                       conservacion: ing.conservacion || 'secos',
                                       perecibilidad: ing.perecibilidad || 'media',
                                       diasVidaUtil: ing.diasVidaUtil !== undefined ? ing.diasVidaUtil : ''
@@ -387,6 +365,18 @@ export const InsumoDrawer: React.FC<InsumoDrawerProps> = ({
           </div>
         </form>
       </div>
+
+      {/* Warning: cambios sin guardar */}
+      <ConfirmModal
+        isOpen={pendingClose}
+        title="¿Cerrar sin guardar?"
+        message="Tienes cambios sin guardar. Si cierras ahora, se perderán."
+        confirmText="Descartar cambios"
+        cancelText="Seguir editando"
+        isDanger={false}
+        onCancel={() => setPendingClose(false)}
+        onConfirm={() => { setPendingClose(false); resetForm(); onClose(); }}
+      />
     </>
   );
 };

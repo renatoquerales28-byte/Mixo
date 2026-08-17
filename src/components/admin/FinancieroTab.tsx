@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { ConfiguracionCostos } from '../../services/db';
+import { useToast } from '../../hooks/useToast';
 
 interface FinancieroTabProps {
   config: ConfiguracionCostos;
@@ -7,6 +8,7 @@ interface FinancieroTabProps {
 }
 
 export const FinancieroTab: React.FC<FinancieroTabProps> = ({ config, onUpdateConfig }) => {
+  const { showToast } = useToast();
   const [localConfig, setLocalConfig] = useState<any | null>(null);
 
   useEffect(() => {
@@ -29,7 +31,7 @@ export const FinancieroTab: React.FC<FinancieroTabProps> = ({ config, onUpdateCo
       porcentajeImpuestos: Number(localConfig.porcentajeImpuestos) || 0
     };
     onUpdateConfig(parsedConfig);
-    alert('Configuración financiera actualizada con éxito.');
+    showToast('Configuración guardada correctamente.', 'success');
   };
 
   return (

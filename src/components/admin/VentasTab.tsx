@@ -2,17 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../../services/db';
 import { ConfirmModal } from '../ConfirmModal';
 import type { Receta } from '../../services/db';
+import { useToast } from '../../hooks/useToast';
 
 interface VentasTabProps {
   onRefresh?: () => void;
 }
 
 export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
+  const { showToast } = useToast();
   const [subTab, setSubTab] = useState<'registro' | 'precios'>('registro');
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [ventas, setVentas] = useState<any[]>([]);
   const [recetaCostos, setRecetaCostos] = useState<{ [id: string]: number }>({});
   const [tempPrices, setTempPrices] = useState<{ [id: string]: string }>({});
+  const [ventaRegistroSearch, setVentaRegistroSearch] = useState('');
   const [ventaFechaInicio, setVentaFechaInicio] = useState(
     new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
@@ -49,7 +52,7 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
   const handleSavePrice = async (recetaId: string, val: string) => {
     const priceNum = Number(val);
     if (isNaN(priceNum) || priceNum < 0) {
-      alert('Por favor ingrese un precio válido.');
+      showToast('Ingresa un precio válido.', 'warning');
       return;
     }
     const rec = recetas.find(r => r.id === recetaId);
@@ -86,7 +89,7 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
       }));
 
     if (itemsValidos.length === 0) {
-      alert('Por favor ingrese una cantidad mayor a cero para al menos un plato.');
+      showToast('Ingresa una cantidad mayor a cero para al menos un plato.', 'warning');
       return;
     }
 
@@ -101,9 +104,10 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
 
     await db.saveVenta(nuevaVenta);
     setVentaItems(prev => prev.map(item => ({ ...item, cantidad: '' })));
+    setVentaRegistroSearch('');
     loadCatalogos();
     if (onRefresh) onRefresh();
-    alert('Reporte de ventas registrado con éxito. Inventario deducido en cascada.');
+    showToast('Venta registrada correctamente.', 'success');
   };
 
   const handleDeleteVenta = (venta: any) => {
@@ -213,8 +217,18 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
             </div>
 
             <div className="mixo-card" style={{ padding: '16px', backgroundColor: 'var(--color-bg-base)', border: '1px solid var(--color-border)', marginTop: '12px', flex: 1, minHeight: 0 }}>
-              <h3 style={{ marginBottom: '12px' }}>Platos Vendidos por Receta</h3>
-              
+              <h3 style={{ marginBottom: '8px' }}>Platos Vendidos por Receta</h3>
+
+              {/* Filtro de búsqueda */}
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Buscar plato del menú..."
+                value={ventaRegistroSearch}
+                onChange={e => setVentaRegistroSearch(e.target.value)}
+                style={{ marginBottom: '12px', fontSize: '13px', height: '36px' }}
+              />
+
               {recetas.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '16px', color: 'var(--color-text-secondary)' }}>
                   No hay recetas registradas como platos finales.
@@ -230,7 +244,11 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
                       </tr>
                     </thead>
                     <tbody>
-                      {ventaItems.map((item, idx) => {
+                      {ventaItems.filter(item => {
+                        if (!ventaRegistroSearch) return true;
+                        const rec = recetas.find(r => r.id === item.recetaId);
+                        return rec ? rec.nombre.toLowerCase().includes(ventaRegistroSearch.toLowerCase()) : true;
+                      }).map((item, idx) => {
                         const rec = recetas.find(r => r.id === item.recetaId);
                         if (!rec) return null;
                         return (

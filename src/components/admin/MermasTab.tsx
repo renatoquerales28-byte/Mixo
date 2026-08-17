@@ -1,17 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../../services/db';
 import type { Ingrediente, Receta, RegistroMermaOperativa } from '../../services/db';
 import { CustomSelect } from '../CustomSelect';
 import { ConfirmModal } from '../ConfirmModal';
+import { useToast } from '../../hooks/useToast';
 
 interface MermasTabProps {
   onRefresh?: () => void;
 }
 
 export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
+  const { showToast } = useToast();
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [recetas, setRecetas] = useState<Receta[]>([]);
   const [mermas, setMermas] = useState<RegistroMermaOperativa[]>([]);
+  const [costoRecetaBase, setCostoRecetaBase] = useState(0);
   const [mermaForm, setMermaForm] = useState({
     tipoOrigen: 'ingrediente' as 'ingrediente' | 'receta',
     referenciaId: '',
@@ -42,6 +45,18 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
     loadCatalogos();
   }, []);
 
+  // Calcular costo de receta seleccionada (async)
+  useEffect(() => {
+    if (mermaForm.tipoOrigen === 'receta' && mermaForm.referenciaId) {
+      db.calcularCostoReceta(mermaForm.referenciaId, recetas).then(costo => {
+        const rec = recetas.find(r => r.id === mermaForm.referenciaId);
+        setCostoRecetaBase(rec && rec.cantidadRendimiento > 0 ? costo / rec.cantidadRendimiento : 0);
+      });
+    } else {
+      setCostoRecetaBase(0);
+    }
+  }, [mermaForm.referenciaId, mermaForm.tipoOrigen, recetas]);
+
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (!(e.target as HTMLElement).closest('.actions-container')) {
@@ -51,6 +66,17 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
     document.addEventListener('click', handleOutsideClick);
     return () => document.removeEventListener('click', handleOutsideClick);
   }, []);
+
+  // Preview síncrono del costo de pérdida
+  const costoPreviewMerma = useMemo(() => {
+    const qty = Number(mermaForm.cantidadPerdida) || 0;
+    if (qty <= 0 || !mermaForm.referenciaId) return 0;
+    if (mermaForm.tipoOrigen === 'ingrediente') {
+      const ing = ingredientes.find(i => i.id === mermaForm.referenciaId);
+      return ing ? (ing.precioActivo || 0) * qty : 0;
+    }
+    return costoRecetaBase * qty;
+  }, [mermaForm.cantidadPerdida, mermaForm.referenciaId, mermaForm.tipoOrigen, ingredientes, costoRecetaBase]);
 
   const handleSaveMerma = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,7 +116,7 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
     }));
     loadCatalogos();
     if (onRefresh) onRefresh();
-    alert('Merma registrada con éxito para auditoría.');
+    showToast('Merma registrada para auditoría.', 'success');
   };
 
   let costoLotePorcion = 0; // auxiliary declaration inside component
@@ -191,6 +217,22 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
             />
           </div>
         </div>
+
+        {/* Preview de costo de la pérdida */}
+        {costoPreviewMerma > 0 && (
+          <div style={{
+            padding: '10px 14px',
+            backgroundColor: 'rgba(255,138,128,0.05)',
+            borderLeft: '3px solid #ff8a80',
+            borderRadius: '8px',
+            marginTop: '4px'
+          }}>
+            <div className="flex-row-between" style={{ fontSize: '13px' }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Costo estimado de esta pérdida:</span>
+              <strong style={{ color: '#ff8a80' }}>${costoPreviewMerma.toFixed(2)}</strong>
+            </div>
+          </div>
+        )}
 
         <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '8px' }}>
           Registrar Merma

@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../services/db';
 import type { Proveedor, Ingrediente, FacturaCompra } from '../../services/db';
+import { useToast } from '../../hooks/useToast';
 
 interface AuditoriaTabProps {
   onRefresh?: () => void;
 }
 
 export const AuditoriaTab: React.FC<AuditoriaTabProps> = ({ onRefresh }) => {
+  const { showToast } = useToast();
   const [ingredientes, setIngredientes] = useState<Ingrediente[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [facturas, setFacturas] = useState<FacturaCompra[]>([]);
@@ -90,7 +92,7 @@ export const AuditoriaTab: React.FC<AuditoriaTabProps> = ({ onRefresh }) => {
       loadCatalogos();
       setEditingFactura(null);
       if (onRefresh) onRefresh();
-      alert('Factura auditada y corregida. Los costos de recetas y el stock del inventario fueron actualizados en cascada.');
+      showToast('Factura auditada. Costos de recetas e inventario actualizados.', 'success');
     }
   };
 

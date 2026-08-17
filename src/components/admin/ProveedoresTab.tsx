@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../services/db';
 import type { Proveedor } from '../../services/db';
+import { useToast } from '../../hooks/useToast';
 
 interface ProveedoresTabProps {
   onRefresh?: () => void;
 }
 
 export const ProveedoresTab: React.FC<ProveedoresTabProps> = ({ onRefresh }) => {
+  const { showToast } = useToast();
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [provForm, setProvForm] = useState({
     nombreComercial: '',
@@ -64,7 +66,7 @@ export const ProveedoresTab: React.FC<ProveedoresTabProps> = ({ onRefresh }) => 
     handleCloseProvDrawer();
     loadCatalogos();
     if (onRefresh) onRefresh();
-    alert(editingProveedor ? 'Proveedor actualizado con éxito.' : 'Proveedor registrado con éxito.');
+    showToast(editingProveedor ? 'Proveedor actualizado correctamente.' : 'Proveedor registrado correctamente.', 'success');
   };
 
   const handleEditProveedor = (prov: Proveedor) => {

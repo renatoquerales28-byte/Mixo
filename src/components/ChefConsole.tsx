@@ -64,15 +64,7 @@ export const ChefConsole: React.FC<ChefConsoleProps> = ({ config, activeTab, onC
 
 
       {activeTab === 'recetas' && (
-        showTechnicalSheet ? (
-          <FichaTecnicaModal
-            receta={showTechnicalSheet}
-            recetas={recetas}
-            ingredientes={ingredientes}
-            lotesProduccion={lotesProduccion}
-            onClose={() => setShowTechnicalSheet(null)}
-          />
-        ) : (
+        <>
           <RecetasTab
             recetas={recetas}
             ingredientes={ingredientes}
@@ -81,8 +73,42 @@ export const ChefConsole: React.FC<ChefConsoleProps> = ({ config, activeTab, onC
             onRefresh={loadData}
             onShowTechnicalSheet={setShowTechnicalSheet}
           />
-        )
+          {/* Ficha Técnica como drawer overlay — no reemplaza RecetasTab */}
+          <div
+            className={`drawer-backdrop ${showTechnicalSheet ? 'open' : ''}`}
+            onClick={() => setShowTechnicalSheet(null)}
+          />
+          <div
+            className={`drawer-panel ${showTechnicalSheet ? 'open' : ''}`}
+            style={{ width: 'clamp(400px, 50vw, 700px)' }}
+          >
+            {showTechnicalSheet && (
+              <div className="drawer-header">
+                <h2 className="drawer-title">Ficha Técnica</h2>
+                <button
+                  type="button"
+                  className="drawer-close"
+                  onClick={() => setShowTechnicalSheet(null)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <div className="drawer-body" style={{ overflowY: 'auto', flex: 1 }}>
+              {showTechnicalSheet && (
+                <FichaTecnicaModal
+                  receta={showTechnicalSheet}
+                  recetas={recetas}
+                  ingredientes={ingredientes}
+                  lotesProduccion={lotesProduccion}
+                  onClose={() => setShowTechnicalSheet(null)}
+                />
+              )}
+            </div>
+          </div>
+        </>
       )}
+
 
       {activeTab === 'lotes' && (
         <LotesTab
