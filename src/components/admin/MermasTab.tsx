@@ -48,14 +48,14 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
   // Calcular costo de receta seleccionada (async)
   useEffect(() => {
     if (mermaForm.tipoOrigen === 'receta' && mermaForm.referenciaId) {
-      db.calcularCostoReceta(mermaForm.referenciaId, recetas).then(costo => {
+      db.calcularCostoReceta(mermaForm.referenciaId, recetas, ingredientes).then(costo => {
         const rec = recetas.find(r => r.id === mermaForm.referenciaId);
         setCostoRecetaBase(rec && rec.cantidadRendimiento > 0 ? costo / rec.cantidadRendimiento : 0);
       });
     } else {
       setCostoRecetaBase(0);
     }
-  }, [mermaForm.referenciaId, mermaForm.tipoOrigen, recetas]);
+  }, [mermaForm.referenciaId, mermaForm.tipoOrigen, recetas, ingredientes]);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
@@ -87,14 +87,13 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
     if (mermaForm.tipoOrigen === 'ingrediente') {
       const ing = ingredientes.find(i => i.id === mermaForm.referenciaId);
       if (ing) {
-        costoLotePorcion = (ing.precioActivo || 0) * qtyNum;
-        costoPérdidaItem = costoLotePorcion;
+        costoPérdidaItem = (ing.precioActivo || 0) * qtyNum;
       }
     } else {
       const rec = recetas.find(r => r.id === mermaForm.referenciaId);
       if (rec) {
-        const costoLote = await db.calcularCostoReceta(rec.id, recetas);
-        costoPérdidaItem = (costoLote / rec.cantidadRendimiento) * qtyNum;
+        const costoLote = await db.calcularCostoReceta(rec.id, recetas, ingredientes);
+        costoPérdidaItem = ((rec.cantidadRendimiento > 0 ? costoLote / rec.cantidadRendimiento : 0)) * qtyNum;
       }
     }
 
@@ -118,8 +117,6 @@ export const MermasTab: React.FC<MermasTabProps> = ({ onRefresh }) => {
     if (onRefresh) onRefresh();
     showToast('Merma registrada para auditoría.', 'success');
   };
-
-  let costoLotePorcion = 0; // auxiliary declaration inside component
 
   const handleDeleteMerma = (merma: RegistroMermaOperativa) => {
     setMermaToDelete(merma);

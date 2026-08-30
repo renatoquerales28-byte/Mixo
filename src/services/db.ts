@@ -140,6 +140,14 @@ export interface ConfiguracionCostos {
   porcentajeImpuestos: number; // ej: 8%
 }
 
+export interface SyncQueueItem {
+  id: string;
+  table: string;
+  action: 'upsert' | 'delete';
+  payload: any;
+  timestamp: number;
+}
+
 const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   alquiler: 1200.0,
   serviciosPublicos: 450.0,
@@ -151,7 +159,6 @@ const CONFIGURACION_INICIAL: ConfiguracionCostos = {
   porcentajeImpuestos: 8.0
 };
 
-
 const KEYS = {
   INGREDIENTES: 'mixo_ingredientes',
   RECETAS: 'mixo_recetas',
@@ -161,7 +168,26 @@ const KEYS = {
   HISTORICO_PRECIOS: 'mixo_historico_precios',
   MERMAS: 'mixo_mermas',
   LOTES_PRODUCCION: 'mixo_lotes_produccion',
-  VENTAS: 'mixo_ventas'
+  VENTAS: 'mixo_ventas',
+  SYNC_QUEUE: 'mixo_sync_queue'
+};
+
+// Utilidad rápida para saber si el cliente está conectado a la red
+const isOnline = (): boolean => {
+  return typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true;
+};
+
+// Wrapper para abortar peticiones lentas o bloqueadas en la red
+const withTimeout = async <T = any>(thenable: any, timeoutMs = 3500): Promise<T> => {
+  let timeoutHandle: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => reject(new Error('Network request timeout')), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve(thenable), timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 };
 
 // Mapeos Supabase <-> TypeScript
@@ -376,16 +402,30 @@ const mapConfigToDB = (c: ConfiguracionCostos) => ({
 });
 
 class LocalDatabase {
-  private get<T>(key: string, defaultValue: T): T {
+  // Caché ultrarrápida en memoria RAM sincronizada con LocalStorage
+  private memoryCache: Map<string, any> = new Map();
+  private inFlightFetches: Map<string, Promise<any>> = new Map();
+  private lastFetchTime: Map<string, number> = new Map();
+  private CACHE_TTL = 45 * 1000; // 45 segundos de frescura antes de revalidar en segundo plano
+  private isSyncing = false;
+
+  private getLocal<T>(key: string, defaultValue: T): T {
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key) as T;
+    }
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : defaultValue;
+      const val = data ? JSON.parse(data) : defaultValue;
+      this.memoryCache.set(key, val);
+      return val;
     } catch {
+      this.memoryCache.set(key, defaultValue);
       return defaultValue;
     }
   }
 
-  private set<T>(key: string, value: T): void {
+  private setLocal<T>(key: string, value: T): void {
+    this.memoryCache.set(key, value);
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (e) {
@@ -395,7 +435,7 @@ class LocalDatabase {
 
   constructor() {
     // Si el navegador tiene datos residuales de los mocks antiguos en localStorage, limpiarlos
-    const storedIngs = this.get<any[]>(KEYS.INGREDIENTES, []);
+    const storedIngs = this.getLocal<any[]>(KEYS.INGREDIENTES, []);
     if (storedIngs.some(i => i.id === 'ing_tomate_chonto' || i.id === 'ing_pasta_lasana' || i.id === 'ing_carne_molida')) {
       localStorage.removeItem(KEYS.INGREDIENTES);
       localStorage.removeItem(KEYS.PROVEEDORES);
@@ -405,65 +445,205 @@ class LocalDatabase {
       localStorage.removeItem(KEYS.MERMAS);
       localStorage.removeItem(KEYS.LOTES_PRODUCCION);
       localStorage.removeItem(KEYS.VENTAS);
+      localStorage.removeItem(KEYS.SYNC_QUEUE);
+      this.memoryCache.clear();
     }
 
-    // Inicializar semillas vacías
-    if (!localStorage.getItem(KEYS.INGREDIENTES)) {
-      this.set(KEYS.INGREDIENTES, []);
+    // Inicializar semillas en memoria
+    if (!localStorage.getItem(KEYS.INGREDIENTES)) this.setLocal(KEYS.INGREDIENTES, []);
+    if (!localStorage.getItem(KEYS.CONFIGURACION)) this.setLocal(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+    if (!localStorage.getItem(KEYS.PROVEEDORES)) this.setLocal(KEYS.PROVEEDORES, []);
+    if (!localStorage.getItem(KEYS.RECETAS)) this.setLocal(KEYS.RECETAS, []);
+    if (!localStorage.getItem(KEYS.FACTURAS)) this.setLocal(KEYS.FACTURAS, []);
+    if (!localStorage.getItem(KEYS.HISTORICO_PRECIOS)) this.setLocal(KEYS.HISTORICO_PRECIOS, []);
+    if (!localStorage.getItem(KEYS.MERMAS)) this.setLocal(KEYS.MERMAS, []);
+    if (!localStorage.getItem(KEYS.LOTES_PRODUCCION)) this.setLocal(KEYS.LOTES_PRODUCCION, []);
+    if (!localStorage.getItem(KEYS.VENTAS)) this.setLocal(KEYS.VENTAS, []);
+    if (!localStorage.getItem(KEYS.SYNC_QUEUE)) this.setLocal(KEYS.SYNC_QUEUE, []);
+
+    // Escuchar cuando el navegador vuelve a tener conexión a internet
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => {
+        console.log('Mixo: Conexión restablecida. Sincronizando cambios pendientes con Supabase...');
+        this.processSyncQueue();
+      });
+
+      // Intento inicial si arrancamos online
+      setTimeout(() => {
+        if (isOnline()) {
+          this.processSyncQueue();
+        }
+      }, 1000);
     }
-    if (!localStorage.getItem(KEYS.CONFIGURACION)) {
-      this.set(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+  }
+
+  // --- COLA DE SINCRONIZACIÓN OFFLINE-TO-ONLINE ---
+  private enqueueMutation(table: string, action: 'upsert' | 'delete', payload: any): void {
+    const queue = this.getLocal<SyncQueueItem[]>(KEYS.SYNC_QUEUE, []);
+    
+    // Si es un array de elementos
+    if (Array.isArray(payload)) {
+      for (const item of payload) {
+        queue.push({
+          id: item.id || 'sync_' + Math.random().toString(36).substr(2, 9),
+          table,
+          action,
+          payload: item,
+          timestamp: Date.now()
+        });
+      }
+    } else {
+      // Reemplazar mutaciones previas sobre el mismo registro para evitar duplicidad
+      const id = payload.id || (typeof payload === 'string' ? payload : 'item');
+      const filtered = queue.filter(q => !(q.table === table && q.id === id));
+      filtered.push({
+        id,
+        table,
+        action,
+        payload,
+        timestamp: Date.now()
+      });
+      this.setLocal(KEYS.SYNC_QUEUE, filtered);
+      
+      if (isOnline()) {
+        this.processSyncQueue();
+      }
+      return;
     }
-    if (!localStorage.getItem(KEYS.PROVEEDORES)) {
-      this.set(KEYS.PROVEEDORES, []);
+
+    this.setLocal(KEYS.SYNC_QUEUE, queue);
+    if (isOnline()) {
+      this.processSyncQueue();
     }
-    if (!localStorage.getItem(KEYS.RECETAS)) {
-      this.set(KEYS.RECETAS, []);
+  }
+
+  public async processSyncQueue(): Promise<void> {
+    if (this.isSyncing || !isSupabaseConfigured || !isOnline()) {
+      return;
     }
-    if (!localStorage.getItem(KEYS.FACTURAS)) {
-      this.set(KEYS.FACTURAS, []);
+
+    const queue = this.getLocal<SyncQueueItem[]>(KEYS.SYNC_QUEUE, []);
+    if (queue.length === 0) {
+      return;
     }
-    if (!localStorage.getItem(KEYS.HISTORICO_PRECIOS)) {
-      this.set(KEYS.HISTORICO_PRECIOS, []);
+
+    this.isSyncing = true;
+    console.log(`Mixo Sync: Procesando ${queue.length} operaciones pendientes...`);
+
+    try {
+      const remainingQueue: SyncQueueItem[] = [];
+
+      for (const item of queue) {
+        try {
+          if (item.action === 'upsert') {
+            await withTimeout(supabase.from(item.table).upsert(item.payload), 4000);
+          } else if (item.action === 'delete') {
+            await withTimeout(supabase.from(item.table).delete().eq('id', item.id), 4000);
+          }
+        } catch (err) {
+          console.warn(`Error sincronizando elemento ${item.table}/${item.id}:`, err);
+          remainingQueue.push(item);
+        }
+      }
+
+      this.setLocal(KEYS.SYNC_QUEUE, remainingQueue);
+
+      if (remainingQueue.length === 0) {
+        console.log('Mixo Sync: Todos los datos pendientes fueron sincronizados exitosamente con Supabase.');
+        // Revalidar en segundo plano para obtener el estado más reciente de la nube
+        this.revalidateAll();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('mixo_sync_completed'));
+        }
+      }
+    } finally {
+      this.isSyncing = false;
     }
-    if (!localStorage.getItem(KEYS.MERMAS)) {
-      this.set(KEYS.MERMAS, []);
-    }
-    if (!localStorage.getItem(KEYS.LOTES_PRODUCCION)) {
-      this.set(KEYS.LOTES_PRODUCCION, []);
-    }
-    if (!localStorage.getItem(KEYS.VENTAS)) {
-      this.set(KEYS.VENTAS, []);
-    }
+  }
+
+  // Revalidar todos los catálogos silenciosamente tras reconexión
+  private revalidateAll(): void {
+    this.revalidateIngredientes();
+    this.revalidateRecetas();
+    this.revalidateProveedores();
+    this.revalidateFacturas();
+    this.revalidateHistoricoPrecios();
+    this.revalidateMermas();
+    this.revalidateLotesProduccion();
+    this.revalidateVentas();
+    this.revalidateConfiguracion();
   }
 
   // --- MÓDULO 1: INGREDIENTES ---
-  async getIngredientes(): Promise<Ingrediente[]> {
-    if (isSupabaseConfigured) {
+  async getIngredientes(forceRefresh = false): Promise<Ingrediente[]> {
+    const local = this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, []);
+    
+    // Si no está configurado o estamos offline, responder inmediatamente desde memoria local (0 ms)
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.INGREDIENTES) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    // Si ya tenemos datos y no se exige forzar refresco, retornar datos de inmediato y revalidar en segundo plano
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateIngredientes(); // Revalidación en background silenciosa
+      }
+      return local;
+    }
+
+    // Si está vacío o se fuerza refresco, esperar la consulta deduplicada
+    return this.revalidateIngredientes();
+  }
+
+  private async revalidateIngredientes(): Promise<Ingrediente[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.INGREDIENTES)) {
+      return this.inFlightFetches.get(KEYS.INGREDIENTES)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('ingredientes').select('*').order('nombre', { ascending: true });
+        const { data, error } = await withTimeout(
+          supabase.from('ingredientes').select('*').order('nombre', { ascending: true }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapIngredienteFromDB);
-          this.set(KEYS.INGREDIENTES, list);
+          this.setLocal(KEYS.INGREDIENTES, list);
+          this.lastFetchTime.set(KEYS.INGREDIENTES, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase ingredientes, usando fallback local:', err);
+        console.warn('Fallo o timeout sincronizando ingredientes desde Supabase:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.INGREDIENTES);
       }
-    }
-    return this.get<Ingrediente[]>(KEYS.INGREDIENTES, []);
+      return this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.INGREDIENTES, fetchPromise);
+    return fetchPromise;
   }
 
   async saveIngrediente(ingrediente: Ingrediente): Promise<Ingrediente[]> {
-    const ingredientes = await this.getIngredientes();
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
     const index = ingredientes.findIndex(i => i.id === ingrediente.id);
     const anterior = index >= 0 ? ingredientes[index] : null;
-    
+
     ingrediente.ultimaActualizacion = new Date().toISOString();
-    
+
     const precioCambio = !anterior || anterior.precioActivo !== ingrediente.precioActivo;
+    let nuevoHistorico: RegistroHistoricoPrecio | null = null;
+
     if (precioCambio && ingrediente.precioActivo !== undefined && ingrediente.precioActivo > 0) {
-      const nuevoHistorico: RegistroHistoricoPrecio = {
+      nuevoHistorico = {
         id: 'hist_' + Math.random().toString(36).substr(2, 9),
         timestamp: new Date().toISOString(),
         ingredienteId: ingrediente.id,
@@ -471,15 +651,10 @@ class LocalDatabase {
         precioUnitarioAP: ingrediente.precioActivo,
         cantidad: 0
       };
-      await this.saveHistoricoPrecio(nuevoHistorico);
-    }
-
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('ingredientes').upsert(mapIngredienteToDB(ingrediente));
-      } catch (err) {
-        console.error('Error guardando ingrediente en Supabase:', err);
-      }
+      const historicos = [...this.getLocal<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, [])];
+      historicos.unshift(nuevoHistorico);
+      this.setLocal(KEYS.HISTORICO_PRECIOS, historicos);
+      this.enqueueMutation('historico_precios', 'upsert', mapHistoricoToDB(nuevoHistorico));
     }
 
     if (index >= 0) {
@@ -487,83 +662,144 @@ class LocalDatabase {
     } else {
       ingredientes.push(ingrediente);
     }
-    
-    this.set(KEYS.INGREDIENTES, ingredientes);
+
+    // 1. ACTUALIZACIÓN LOCAL INMEDIATA EN MEMORIA (0 ms)
+    this.setLocal(KEYS.INGREDIENTES, ingredientes);
+
+    // 2. ENCOLAR MUTACIÓN PARA SINCRONIZACIÓN OFFLINE/ONLINE
+    this.enqueueMutation('ingredientes', 'upsert', mapIngredienteToDB(ingrediente));
+
     return ingredientes;
   }
 
   async deleteIngrediente(id: string): Promise<Ingrediente[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('ingredientes').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando ingrediente en Supabase:', err);
-      }
-    }
-    const ingredientes = await this.getIngredientes();
+    const ingredientes = this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, []);
     const filtrados = ingredientes.filter(i => i.id !== id);
-    this.set(KEYS.INGREDIENTES, filtrados);
+    this.setLocal(KEYS.INGREDIENTES, filtrados);
+
+    this.enqueueMutation('ingredientes', 'delete', { id });
+
     return filtrados;
   }
 
   // --- MÓDULO 4: CONFIGURACIÓN FINANCIERA ---
-  async getConfiguracion(): Promise<ConfiguracionCostos> {
-    if (isSupabaseConfigured) {
+  async getConfiguracion(forceRefresh = false): Promise<ConfiguracionCostos> {
+    const local = this.getLocal<ConfiguracionCostos>(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.CONFIGURACION) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (!forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateConfiguracion();
+      }
+      return local;
+    }
+
+    return this.revalidateConfiguracion();
+  }
+
+  private async revalidateConfiguracion(): Promise<ConfiguracionCostos> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<ConfiguracionCostos>(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+    }
+
+    if (this.inFlightFetches.has(KEYS.CONFIGURACION)) {
+      return this.inFlightFetches.get(KEYS.CONFIGURACION)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('configuracion_costos').select('*').eq('id', 'default').maybeSingle();
+        const { data, error } = await withTimeout(
+          supabase.from('configuracion_costos').select('*').eq('id', 'default').maybeSingle(),
+          3500
+        );
         if (!error && data) {
           const config = mapConfigFromDB(data);
-          this.set(KEYS.CONFIGURACION, config);
+          this.setLocal(KEYS.CONFIGURACION, config);
+          this.lastFetchTime.set(KEYS.CONFIGURACION, Date.now());
           return config;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase configuracion, usando fallback:', err);
+        console.warn('Fallo consulta Supabase configuración, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.CONFIGURACION);
       }
-    }
-    return this.get<ConfiguracionCostos>(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+      return this.getLocal<ConfiguracionCostos>(KEYS.CONFIGURACION, CONFIGURACION_INICIAL);
+    })();
+
+    this.inFlightFetches.set(KEYS.CONFIGURACION, fetchPromise);
+    return fetchPromise;
   }
 
   async saveConfiguracion(config: ConfiguracionCostos): Promise<ConfiguracionCostos> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('configuracion_costos').upsert(mapConfigToDB(config));
-      } catch (err) {
-        console.error('Error guardando configuración en Supabase:', err);
-      }
-    }
-    this.set(KEYS.CONFIGURACION, config);
+    this.setLocal(KEYS.CONFIGURACION, config);
+    this.enqueueMutation('configuracion_costos', 'upsert', mapConfigToDB(config));
     return config;
   }
 
   // --- MÓDULO 2: RECETAS ---
-  async getRecetas(): Promise<Receta[]> {
-    if (isSupabaseConfigured) {
+  async getRecetas(forceRefresh = false): Promise<Receta[]> {
+    const local = this.getLocal<Receta[]>(KEYS.RECETAS, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.RECETAS) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateRecetas();
+      }
+      return local;
+    }
+
+    return this.revalidateRecetas();
+  }
+
+  private async revalidateRecetas(): Promise<Receta[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<Receta[]>(KEYS.RECETAS, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.RECETAS)) {
+      return this.inFlightFetches.get(KEYS.RECETAS)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('recetas').select('*').order('nombre', { ascending: true });
+        const { data, error } = await withTimeout(
+          supabase.from('recetas').select('*').order('nombre', { ascending: true }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapRecetaFromDB);
-          this.set(KEYS.RECETAS, list);
+          this.setLocal(KEYS.RECETAS, list);
+          this.lastFetchTime.set(KEYS.RECETAS, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase recetas, usando fallback:', err);
+        console.warn('Fallo consulta Supabase recetas, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.RECETAS);
       }
-    }
-    return this.get<Receta[]>(KEYS.RECETAS, []);
+      return this.getLocal<Receta[]>(KEYS.RECETAS, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.RECETAS, fetchPromise);
+    return fetchPromise;
   }
 
   async saveReceta(receta: Receta): Promise<Receta[]> {
     receta.ultimaActualizacion = new Date().toISOString();
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('recetas').upsert(mapRecetaToDB(receta));
-      } catch (err) {
-        console.error('Error guardando receta en Supabase:', err);
-      }
-    }
-
-    const recetas = await this.getRecetas();
+    const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
     const index = recetas.findIndex(r => r.id === receta.id);
     if (index >= 0) {
       recetas[index] = receta;
@@ -571,50 +807,78 @@ class LocalDatabase {
       recetas.push(receta);
     }
     
-    this.set(KEYS.RECETAS, recetas);
+    this.setLocal(KEYS.RECETAS, recetas);
+    this.enqueueMutation('recetas', 'upsert', mapRecetaToDB(receta));
+
     return recetas;
   }
 
   async deleteReceta(id: string): Promise<Receta[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('recetas').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando receta en Supabase:', err);
-      }
-    }
-    const recetas = await this.getRecetas();
+    const recetas = this.getLocal<Receta[]>(KEYS.RECETAS, []);
     const filtrados = recetas.filter(r => r.id !== id);
-    this.set(KEYS.RECETAS, filtrados);
+    this.setLocal(KEYS.RECETAS, filtrados);
+
+    this.enqueueMutation('recetas', 'delete', { id });
+
     return filtrados;
   }
 
   // --- MÓDULO 3: PROVEEDORES ---
-  async getProveedores(): Promise<Proveedor[]> {
-    if (isSupabaseConfigured) {
+  async getProveedores(forceRefresh = false): Promise<Proveedor[]> {
+    const local = this.getLocal<Proveedor[]>(KEYS.PROVEEDORES, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.PROVEEDORES) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateProveedores();
+      }
+      return local;
+    }
+
+    return this.revalidateProveedores();
+  }
+
+  private async revalidateProveedores(): Promise<Proveedor[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<Proveedor[]>(KEYS.PROVEEDORES, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.PROVEEDORES)) {
+      return this.inFlightFetches.get(KEYS.PROVEEDORES)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('proveedores').select('*').order('nombre_comercial', { ascending: true });
+        const { data, error } = await withTimeout(
+          supabase.from('proveedores').select('*').order('nombre_comercial', { ascending: true }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapProveedorFromDB);
-          this.set(KEYS.PROVEEDORES, list);
+          this.setLocal(KEYS.PROVEEDORES, list);
+          this.lastFetchTime.set(KEYS.PROVEEDORES, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase proveedores, usando fallback:', err);
+        console.warn('Fallo consulta Supabase proveedores, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.PROVEEDORES);
       }
-    }
-    return this.get<Proveedor[]>(KEYS.PROVEEDORES, []);
+      return this.getLocal<Proveedor[]>(KEYS.PROVEEDORES, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.PROVEEDORES, fetchPromise);
+    return fetchPromise;
   }
 
   async saveProveedor(proveedor: Proveedor): Promise<Proveedor[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('proveedores').upsert(mapProveedorToDB(proveedor));
-      } catch (err) {
-        console.error('Error guardando proveedor en Supabase:', err);
-      }
-    }
-    const proveedores = await this.getProveedores();
+    const proveedores = [...this.getLocal<Proveedor[]>(KEYS.PROVEEDORES, [])];
     const index = proveedores.findIndex(p => p.id === proveedor.id);
     
     if (index >= 0) {
@@ -623,59 +887,88 @@ class LocalDatabase {
       proveedores.push(proveedor);
     }
     
-    this.set(KEYS.PROVEEDORES, proveedores);
+    this.setLocal(KEYS.PROVEEDORES, proveedores);
+    this.enqueueMutation('proveedores', 'upsert', mapProveedorToDB(proveedor));
+
     return proveedores;
   }
 
   async deleteProveedor(id: string): Promise<Proveedor[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('proveedores').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando proveedor en Supabase:', err);
-      }
-    }
-    const proveedores = await this.getProveedores();
+    const proveedores = this.getLocal<Proveedor[]>(KEYS.PROVEEDORES, []);
     const filtrados = proveedores.filter(p => p.id !== id);
-    this.set(KEYS.PROVEEDORES, filtrados);
+    this.setLocal(KEYS.PROVEEDORES, filtrados);
+
+    this.enqueueMutation('proveedores', 'delete', { id });
+
     return filtrados;
   }
 
   // --- REGISTRO DE COMPRAS (FACTURAS) Y HISTORIAL ---
-  async getFacturas(): Promise<FacturaCompra[]> {
-    if (isSupabaseConfigured) {
+  async getFacturas(forceRefresh = false): Promise<FacturaCompra[]> {
+    const local = this.getLocal<FacturaCompra[]>(KEYS.FACTURAS, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.FACTURAS) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateFacturas();
+      }
+      return local;
+    }
+
+    return this.revalidateFacturas();
+  }
+
+  private async revalidateFacturas(): Promise<FacturaCompra[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<FacturaCompra[]>(KEYS.FACTURAS, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.FACTURAS)) {
+      return this.inFlightFetches.get(KEYS.FACTURAS)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('facturas_compras').select('*').order('fecha_compra', { ascending: false });
+        const { data, error } = await withTimeout(
+          supabase.from('facturas_compras').select('*').order('fecha_compra', { ascending: false }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapFacturaFromDB);
-          this.set(KEYS.FACTURAS, list);
+          this.setLocal(KEYS.FACTURAS, list);
+          this.lastFetchTime.set(KEYS.FACTURAS, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase facturas, usando fallback:', err);
+        console.warn('Fallo consulta Supabase facturas, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.FACTURAS);
       }
-    }
-    return this.get<FacturaCompra[]>(KEYS.FACTURAS, []);
+      return this.getLocal<FacturaCompra[]>(KEYS.FACTURAS, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.FACTURAS, fetchPromise);
+    return fetchPromise;
   }
 
   async saveFactura(factura: FacturaCompra): Promise<FacturaCompra[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('facturas_compras').upsert(mapFacturaToDB(factura));
-      } catch (err) {
-        console.error('Error guardando factura en Supabase:', err);
-      }
-    }
-
-    const facturas = await this.getFacturas();
-    facturas.push(factura);
-    this.set(KEYS.FACTURAS, facturas);
+    const facturas = [...this.getLocal<FacturaCompra[]>(KEYS.FACTURAS, [])];
+    facturas.unshift(factura);
+    this.setLocal(KEYS.FACTURAS, facturas);
 
     // Actualizar precios de ingredientes e inyectar al historial
-    const ingredientes = await this.getIngredientes();
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
+    const historicos = [...this.getLocal<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, [])];
+    const nuevosHistoricos: RegistroHistoricoPrecio[] = [];
+    const ingredientesModificados: Ingrediente[] = [];
 
     for (const item of factura.items) {
-      // 1. Inyectar histórico
       const nuevoHistorico: RegistroHistoricoPrecio = {
         id: 'hist_' + Math.random().toString(36).substr(2, 9),
         timestamp: factura.fechaCompra,
@@ -684,269 +977,462 @@ class LocalDatabase {
         precioUnitarioAP: item.precioCompraAP / item.cantidadComprada,
         cantidad: item.cantidadComprada
       };
-      await this.saveHistoricoPrecio(nuevoHistorico);
+      nuevosHistoricos.push(nuevoHistorico);
+      historicos.unshift(nuevoHistorico);
 
-      // 2. Actualizar precio activo en el catálogo y sumar stock
       const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
       if (ingIndex >= 0) {
-        ingredientes[ingIndex].precioActivo = item.precioCompraAP / item.cantidadComprada;
-        ingredientes[ingIndex].stockActual = (ingredientes[ingIndex].stockActual || 0) + item.cantidadComprada;
-        if (item.fechaVencimiento) {
-          ingredientes[ingIndex].fechaVencimiento = item.fechaVencimiento;
-        }
-        ingredientes[ingIndex].ultimaActualizacion = new Date().toISOString();
-        await this.saveIngrediente(ingredientes[ingIndex]);
+        ingredientes[ingIndex] = {
+          ...ingredientes[ingIndex],
+          precioActivo: item.precioCompraAP / item.cantidadComprada,
+          stockActual: (ingredientes[ingIndex].stockActual || 0) + item.cantidadComprada,
+          fechaVencimiento: item.fechaVencimiento || ingredientes[ingIndex].fechaVencimiento,
+          ultimaActualizacion: new Date().toISOString()
+        };
+        ingredientesModificados.push(ingredientes[ingIndex]);
       }
+    }
+
+    this.setLocal(KEYS.HISTORICO_PRECIOS, historicos);
+    this.setLocal(KEYS.INGREDIENTES, ingredientes);
+
+    // Encolar mutaciones
+    this.enqueueMutation('facturas_compras', 'upsert', mapFacturaToDB(factura));
+    if (nuevosHistoricos.length > 0) {
+      this.enqueueMutation('historico_precios', 'upsert', nuevosHistoricos.map(mapHistoricoToDB));
+    }
+    if (ingredientesModificados.length > 0) {
+      this.enqueueMutation('ingredientes', 'upsert', ingredientesModificados.map(mapIngredienteToDB));
     }
 
     return facturas;
   }
 
-  async getHistoricoPrecios(): Promise<RegistroHistoricoPrecio[]> {
-    if (isSupabaseConfigured) {
+  async getHistoricoPrecios(forceRefresh = false): Promise<RegistroHistoricoPrecio[]> {
+    const local = this.getLocal<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.HISTORICO_PRECIOS) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateHistoricoPrecios();
+      }
+      return local;
+    }
+
+    return this.revalidateHistoricoPrecios();
+  }
+
+  private async revalidateHistoricoPrecios(): Promise<RegistroHistoricoPrecio[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.HISTORICO_PRECIOS)) {
+      return this.inFlightFetches.get(KEYS.HISTORICO_PRECIOS)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('historico_precios').select('*').order('timestamp', { ascending: false });
+        const { data, error } = await withTimeout(
+          supabase.from('historico_precios').select('*').order('timestamp', { ascending: false }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapHistoricoFromDB);
-          this.set(KEYS.HISTORICO_PRECIOS, list);
+          this.setLocal(KEYS.HISTORICO_PRECIOS, list);
+          this.lastFetchTime.set(KEYS.HISTORICO_PRECIOS, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase histórico precios, usando fallback:', err);
+        console.warn('Fallo consulta Supabase histórico precios, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.HISTORICO_PRECIOS);
       }
-    }
-    return this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
-  }
+      return this.getLocal<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
+    })();
 
-  private async saveHistoricoPrecio(h: RegistroHistoricoPrecio): Promise<void> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('historico_precios').upsert(mapHistoricoToDB(h));
-      } catch (err) {
-        console.error('Error guardando histórico de precio en Supabase:', err);
-      }
-    }
-    const historicos = this.get<RegistroHistoricoPrecio[]>(KEYS.HISTORICO_PRECIOS, []);
-    historicos.push(h);
-    this.set(KEYS.HISTORICO_PRECIOS, historicos);
+    this.inFlightFetches.set(KEYS.HISTORICO_PRECIOS, fetchPromise);
+    return fetchPromise;
   }
 
   // --- REGISTRO DE MERMAS OPERATIVAS ---
-  async getMermas(): Promise<RegistroMermaOperativa[]> {
-    if (isSupabaseConfigured) {
+  async getMermas(forceRefresh = false): Promise<RegistroMermaOperativa[]> {
+    const local = this.getLocal<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.MERMAS) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateMermas();
+      }
+      return local;
+    }
+
+    return this.revalidateMermas();
+  }
+
+  private async revalidateMermas(): Promise<RegistroMermaOperativa[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.MERMAS)) {
+      return this.inFlightFetches.get(KEYS.MERMAS)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('mermas_operativas').select('*').order('fecha_merma', { ascending: false });
+        const { data, error } = await withTimeout(
+          supabase.from('mermas_operativas').select('*').order('fecha_merma', { ascending: false }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapMermaFromDB);
-          this.set(KEYS.MERMAS, list);
+          this.setLocal(KEYS.MERMAS, list);
+          this.lastFetchTime.set(KEYS.MERMAS, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase mermas, usando fallback:', err);
+        console.warn('Fallo consulta Supabase mermas, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.MERMAS);
       }
-    }
-    return this.get<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
+      return this.getLocal<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.MERMAS, fetchPromise);
+    return fetchPromise;
   }
 
   async saveMerma(merma: RegistroMermaOperativa): Promise<RegistroMermaOperativa[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('mermas_operativas').upsert(mapMermaToDB(merma));
-      } catch (err) {
-        console.error('Error guardando merma en Supabase:', err);
-      }
-    }
+    const mermas = [...this.getLocal<RegistroMermaOperativa[]>(KEYS.MERMAS, [])];
+    mermas.unshift(merma);
+    this.setLocal(KEYS.MERMAS, mermas);
 
-    const mermas = await this.getMermas();
-    mermas.push(merma);
-    this.set(KEYS.MERMAS, mermas);
+    // Deducir stock localmente
+    let ingModificado: Ingrediente | null = null;
+    let recModificada: Receta | null = null;
 
-    // Deducir stock del ingrediente si es merma de materia prima, o de la receta si es merma de producto terminado
     if (merma.tipoOrigen === 'ingrediente') {
-      const ingredientes = await this.getIngredientes();
+      const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
       const ingIndex = ingredientes.findIndex(i => i.id === merma.referenciaId);
       if (ingIndex >= 0) {
-        ingredientes[ingIndex].stockActual = Math.max(0, (ingredientes[ingIndex].stockActual || 0) - merma.cantidadPerdida);
-        await this.saveIngrediente(ingredientes[ingIndex]);
+        ingredientes[ingIndex] = {
+          ...ingredientes[ingIndex],
+          stockActual: Math.max(0, (ingredientes[ingIndex].stockActual || 0) - merma.cantidadPerdida),
+          ultimaActualizacion: new Date().toISOString()
+        };
+        ingModificado = ingredientes[ingIndex];
+        this.setLocal(KEYS.INGREDIENTES, ingredientes);
       }
     } else if (merma.tipoOrigen === 'receta') {
-      const recetas = await this.getRecetas();
+      const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
       const recIndex = recetas.findIndex(r => r.id === merma.referenciaId);
       if (recIndex >= 0) {
-        recetas[recIndex].stockActual = Math.max(0, (recetas[recIndex].stockActual || 0) - merma.cantidadPerdida);
-        await this.saveReceta(recetas[recIndex]);
+        recetas[recIndex] = {
+          ...recetas[recIndex],
+          stockActual: Math.max(0, (recetas[recIndex].stockActual || 0) - merma.cantidadPerdida),
+          ultimaActualizacion: new Date().toISOString()
+        };
+        recModificada = recetas[recIndex];
+        this.setLocal(KEYS.RECETAS, recetas);
       }
     }
+
+    this.enqueueMutation('mermas_operativas', 'upsert', mapMermaToDB(merma));
+    if (ingModificado) {
+      this.enqueueMutation('ingredientes', 'upsert', mapIngredienteToDB(ingModificado));
+    }
+    if (recModificada) {
+      this.enqueueMutation('recetas', 'upsert', mapRecetaToDB(recModificada));
+    }
+
     return mermas;
   }
 
   async deleteMerma(id: string): Promise<RegistroMermaOperativa[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('mermas_operativas').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando merma en Supabase:', err);
-      }
-    }
-
-    const mermas = await this.getMermas();
+    const mermas = this.getLocal<RegistroMermaOperativa[]>(KEYS.MERMAS, []);
     const mermaToDelete = mermas.find(m => m.id === id);
     const filtradas = mermas.filter(m => m.id !== id);
-    this.set(KEYS.MERMAS, filtradas);
+    this.setLocal(KEYS.MERMAS, filtradas);
+
+    let ingModificado: Ingrediente | null = null;
+    let recModificada: Receta | null = null;
 
     if (mermaToDelete) {
       if (mermaToDelete.tipoOrigen === 'ingrediente') {
-        const ingredientes = await this.getIngredientes();
+        const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
         const ingIndex = ingredientes.findIndex(i => i.id === mermaToDelete.referenciaId);
         if (ingIndex >= 0) {
-          ingredientes[ingIndex].stockActual = (ingredientes[ingIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
-          await this.saveIngrediente(ingredientes[ingIndex]);
+          ingredientes[ingIndex] = {
+            ...ingredientes[ingIndex],
+            stockActual: (ingredientes[ingIndex].stockActual || 0) + mermaToDelete.cantidadPerdida,
+            ultimaActualizacion: new Date().toISOString()
+          };
+          ingModificado = ingredientes[ingIndex];
+          this.setLocal(KEYS.INGREDIENTES, ingredientes);
         }
       } else if (mermaToDelete.tipoOrigen === 'receta') {
-        const recetas = await this.getRecetas();
+        const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
         const recIndex = recetas.findIndex(r => r.id === mermaToDelete.referenciaId);
         if (recIndex >= 0) {
-          recetas[recIndex].stockActual = (recetas[recIndex].stockActual || 0) + mermaToDelete.cantidadPerdida;
-          await this.saveReceta(recetas[recIndex]);
+          recetas[recIndex] = {
+            ...recetas[recIndex],
+            stockActual: (recetas[recIndex].stockActual || 0) + mermaToDelete.cantidadPerdida,
+            ultimaActualizacion: new Date().toISOString()
+          };
+          recModificada = recetas[recIndex];
+          this.setLocal(KEYS.RECETAS, recetas);
         }
       }
     }
+
+    this.enqueueMutation('mermas_operativas', 'delete', { id });
+    if (ingModificado) {
+      this.enqueueMutation('ingredientes', 'upsert', mapIngredienteToDB(ingModificado));
+    }
+    if (recModificada) {
+      this.enqueueMutation('recetas', 'upsert', mapRecetaToDB(recModificada));
+    }
+
     return filtradas;
   }
 
   // --- MÓDULO 5: LOTES DE PRODUCCIÓN REAL ---
-  async getLotesProduccion(): Promise<LoteProduccion[]> {
-    if (isSupabaseConfigured) {
+  async getLotesProduccion(forceRefresh = false): Promise<LoteProduccion[]> {
+    const local = this.getLocal<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.LOTES_PRODUCCION) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateLotesProduccion();
+      }
+      return local;
+    }
+
+    return this.revalidateLotesProduccion();
+  }
+
+  private async revalidateLotesProduccion(): Promise<LoteProduccion[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.LOTES_PRODUCCION)) {
+      return this.inFlightFetches.get(KEYS.LOTES_PRODUCCION)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('lotes_produccion').select('*').order('fecha', { ascending: false });
+        const { data, error } = await withTimeout(
+          supabase.from('lotes_produccion').select('*').order('fecha', { ascending: false }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapLoteFromDB);
-          this.set(KEYS.LOTES_PRODUCCION, list);
+          this.setLocal(KEYS.LOTES_PRODUCCION, list);
+          this.lastFetchTime.set(KEYS.LOTES_PRODUCCION, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase lotes producción, usando fallback:', err);
+        console.warn('Fallo consulta Supabase lotes producción, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.LOTES_PRODUCCION);
       }
-    }
-    return this.get<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
+      return this.getLocal<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.LOTES_PRODUCCION, fetchPromise);
+    return fetchPromise;
   }
 
   async saveLoteProduccion(lote: LoteProduccion): Promise<LoteProduccion[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('lotes_produccion').upsert(mapLoteToDB(lote));
-      } catch (err) {
-        console.error('Error guardando lote de producción en Supabase:', err);
-      }
-    }
-
-    const lotes = await this.getLotesProduccion();
+    const lotes = [...this.getLocal<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, [])];
     const index = lotes.findIndex(l => l.id === lote.id);
     
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
+    const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
+    const ingredientesModificados: Ingrediente[] = [];
+    let recetaModificada: Receta | null = null;
+
     if (index >= 0) {
       lotes[index] = lote;
     } else {
-      lotes.push(lote);
+      lotes.unshift(lote);
 
-      // Deducir stock de insumos reales consumidos
-      const ingredientes = await this.getIngredientes();
+      // Deducir stock de insumos reales consumidos localmente
       for (const item of lote.insumos) {
         if (!item.esRecetaAnidada) {
           const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
           if (ingIndex >= 0) {
-            const ing = ingredientes[ingIndex];
-            ing.stockActual = Math.max(0, (ing.stockActual || 0) - item.cantidadReal);
-            await this.saveIngrediente(ing);
+            ingredientes[ingIndex] = {
+              ...ingredientes[ingIndex],
+              stockActual: Math.max(0, (ingredientes[ingIndex].stockActual || 0) - item.cantidadReal),
+              ultimaActualizacion: new Date().toISOString()
+            };
+            ingredientesModificados.push(ingredientes[ingIndex]);
           }
         }
       }
 
-      // Incrementar stock de la receta producida
-      const recetas = await this.getRecetas();
+      // Incrementar stock de la receta producida localmente
       const recIndex = recetas.findIndex(r => r.id === lote.recetaId);
       if (recIndex >= 0) {
-        const rec = recetas[recIndex];
-        rec.stockActual = (rec.stockActual || 0) + lote.cantidadProducida;
-        await this.saveReceta(rec);
+        recetas[recIndex] = {
+          ...recetas[recIndex],
+          stockActual: (recetas[recIndex].stockActual || 0) + lote.cantidadProducida,
+          ultimaActualizacion: new Date().toISOString()
+        };
+        recetaModificada = recetas[recIndex];
       }
     }
     
-    this.set(KEYS.LOTES_PRODUCCION, lotes);
+    this.setLocal(KEYS.LOTES_PRODUCCION, lotes);
+    this.setLocal(KEYS.INGREDIENTES, ingredientes);
+    this.setLocal(KEYS.RECETAS, recetas);
+
+    this.enqueueMutation('lotes_produccion', 'upsert', mapLoteToDB(lote));
+    if (ingredientesModificados.length > 0) {
+      this.enqueueMutation('ingredientes', 'upsert', ingredientesModificados.map(mapIngredienteToDB));
+    }
+    if (recetaModificada) {
+      this.enqueueMutation('recetas', 'upsert', mapRecetaToDB(recetaModificada));
+    }
+
     return lotes;
   }
 
   async deleteLoteProduccion(id: string): Promise<LoteProduccion[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('lotes_produccion').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando lote producción en Supabase:', err);
-      }
-    }
-
-    const lotes = await this.getLotesProduccion();
+    const lotes = this.getLocal<LoteProduccion[]>(KEYS.LOTES_PRODUCCION, []);
     const loteToDelete = lotes.find(l => l.id === id);
     const filtrados = lotes.filter(l => l.id !== id);
-    this.set(KEYS.LOTES_PRODUCCION, filtrados);
+    this.setLocal(KEYS.LOTES_PRODUCCION, filtrados);
+
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
+    const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
+    const ingredientesModificados: Ingrediente[] = [];
+    let recetaModificada: Receta | null = null;
 
     if (loteToDelete) {
-      const ingredientes = await this.getIngredientes();
       for (const item of loteToDelete.insumos) {
         if (!item.esRecetaAnidada) {
           const ingIndex = ingredientes.findIndex(i => i.id === item.ingredienteId);
           if (ingIndex >= 0) {
-            const ing = ingredientes[ingIndex];
-            ing.stockActual = (ing.stockActual || 0) + item.cantidadReal;
-            await this.saveIngrediente(ing);
+            ingredientes[ingIndex] = {
+              ...ingredientes[ingIndex],
+              stockActual: (ingredientes[ingIndex].stockActual || 0) + item.cantidadReal,
+              ultimaActualizacion: new Date().toISOString()
+            };
+            ingredientesModificados.push(ingredientes[ingIndex]);
           }
         }
       }
 
       // Decrementar stock de la receta producida
-      const recetas = await this.getRecetas();
       const recIndex = recetas.findIndex(r => r.id === loteToDelete.recetaId);
       if (recIndex >= 0) {
-        const rec = recetas[recIndex];
-        rec.stockActual = Math.max(0, (rec.stockActual || 0) - loteToDelete.cantidadProducida);
-        await this.saveReceta(rec);
+        recetas[recIndex] = {
+          ...recetas[recIndex],
+          stockActual: Math.max(0, (recetas[recIndex].stockActual || 0) - loteToDelete.cantidadProducida),
+          ultimaActualizacion: new Date().toISOString()
+        };
+        recetaModificada = recetas[recIndex];
       }
+
+      this.setLocal(KEYS.INGREDIENTES, ingredientes);
+      this.setLocal(KEYS.RECETAS, recetas);
     }
+
+    this.enqueueMutation('lotes_produccion', 'delete', { id });
+    if (ingredientesModificados.length > 0) {
+      this.enqueueMutation('ingredientes', 'upsert', ingredientesModificados.map(mapIngredienteToDB));
+    }
+    if (recetaModificada) {
+      this.enqueueMutation('recetas', 'upsert', mapRecetaToDB(recetaModificada));
+    }
+
     return filtrados;
   }
 
   // --- MÓDULO DE VENTAS (REPORTES POS) ---
-  async getVentas(): Promise<RegistroVentas[]> {
-    if (isSupabaseConfigured) {
+  async getVentas(forceRefresh = false): Promise<RegistroVentas[]> {
+    const local = this.getLocal<RegistroVentas[]>(KEYS.VENTAS, []);
+    if (!isSupabaseConfigured || !isOnline()) {
+      return local;
+    }
+
+    const now = Date.now();
+    const lastFetch = this.lastFetchTime.get(KEYS.VENTAS) || 0;
+    const isCacheStale = now - lastFetch > this.CACHE_TTL;
+
+    if (local.length > 0 && !forceRefresh) {
+      if (isCacheStale) {
+        this.revalidateVentas();
+      }
+      return local;
+    }
+
+    return this.revalidateVentas();
+  }
+
+  private async revalidateVentas(): Promise<RegistroVentas[]> {
+    if (!isSupabaseConfigured || !isOnline()) {
+      return this.getLocal<RegistroVentas[]>(KEYS.VENTAS, []);
+    }
+
+    if (this.inFlightFetches.has(KEYS.VENTAS)) {
+      return this.inFlightFetches.get(KEYS.VENTAS)!;
+    }
+
+    const fetchPromise = (async () => {
       try {
-        const { data, error } = await supabase.from('registros_ventas').select('*').order('fecha_inicio', { ascending: false });
+        const { data, error } = await withTimeout(
+          supabase.from('registros_ventas').select('*').order('fecha_inicio', { ascending: false }),
+          3500
+        );
         if (!error && data) {
           const list = data.map(mapVentaFromDB);
-          this.set(KEYS.VENTAS, list);
+          this.setLocal(KEYS.VENTAS, list);
+          this.lastFetchTime.set(KEYS.VENTAS, Date.now());
           return list;
         }
       } catch (err) {
-        console.warn('Fallo consulta Supabase ventas, usando fallback:', err);
+        console.warn('Fallo consulta Supabase ventas, usando local:', err);
+      } finally {
+        this.inFlightFetches.delete(KEYS.VENTAS);
       }
-    }
-    return this.get<RegistroVentas[]>(KEYS.VENTAS, []);
+      return this.getLocal<RegistroVentas[]>(KEYS.VENTAS, []);
+    })();
+
+    this.inFlightFetches.set(KEYS.VENTAS, fetchPromise);
+    return fetchPromise;
   }
 
   async saveVenta(venta: RegistroVentas): Promise<RegistroVentas[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('registros_ventas').upsert(mapVentaToDB(venta));
-      } catch (err) {
-        console.error('Error guardando venta en Supabase:', err);
-      }
-    }
-
-    const ventas = await this.getVentas();
-    ventas.push(venta);
-    this.set(KEYS.VENTAS, ventas);
+    const ventas = [...this.getLocal<RegistroVentas[]>(KEYS.VENTAS, [])];
+    ventas.unshift(venta);
+    this.setLocal(KEYS.VENTAS, ventas);
 
     // Deducir stock de ingredientes en cascada o de recetas producidas
-    const recetas = await this.getRecetas();
-    const ingredientes = await this.getIngredientes();
+    const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
     
     const deducirIngredientes: { [id: string]: number } = {};
     const deducirRecetas: { [id: string]: number } = {};
@@ -958,13 +1444,12 @@ class LocalDatabase {
       const rec = recetas.find(r => r.id === recetaId);
       if (!rec) return;
 
-      // Si la receta es una sub-receta o está configurada como producción previa, se descuenta de su stock de lote
       if (rec.esSubReceta || rec.modoDescuento === 'produccion_previa') {
         deducirRecetas[recetaId] = (deducirRecetas[recetaId] || 0) + qty;
         return;
       }
 
-      const scaleFactor = qty / rec.cantidadRendimiento;
+      const scaleFactor = qty / (rec.cantidadRendimiento || 1);
 
       rec.ingredientes.forEach(item => {
         const qtyNeeded = item.cantidadRequerida * scaleFactor;
@@ -985,46 +1470,58 @@ class LocalDatabase {
       }
     }
 
-    // 1. Deducir ingredientes crudos
+    const ingredientesModificados: Ingrediente[] = [];
     for (const ingId of Object.keys(deducirIngredientes)) {
       const ingIdx = ingredientes.findIndex(i => i.id === ingId);
       if (ingIdx >= 0) {
-        const ing = ingredientes[ingIdx];
-        ing.stockActual = Math.max(0, (ing.stockActual || 0) - deducirIngredientes[ingId]);
-        await this.saveIngrediente(ing);
+        ingredientes[ingIdx] = {
+          ...ingredientes[ingIdx],
+          stockActual: Math.max(0, (ingredientes[ingIdx].stockActual || 0) - deducirIngredientes[ingId]),
+          ultimaActualizacion: new Date().toISOString()
+        };
+        ingredientesModificados.push(ingredientes[ingIdx]);
       }
     }
 
-    // 2. Deducir recetas preparadas
+    const recetasModificadas: Receta[] = [];
     for (const recId of Object.keys(deducirRecetas)) {
       const recIdx = recetas.findIndex(r => r.id === recId);
       if (recIdx >= 0) {
-        const rec = recetas[recIdx];
-        rec.stockActual = Math.max(0, (rec.stockActual || 0) - deducirRecetas[recId]);
-        await this.saveReceta(rec);
+        recetas[recIdx] = {
+          ...recetas[recIdx],
+          stockActual: Math.max(0, (recetas[recIdx].stockActual || 0) - deducirRecetas[recId]),
+          ultimaActualizacion: new Date().toISOString()
+        };
+        recetasModificadas.push(recetas[recIdx]);
       }
+    }
+
+    this.setLocal(KEYS.INGREDIENTES, ingredientes);
+    this.setLocal(KEYS.RECETAS, recetas);
+
+    this.enqueueMutation('registros_ventas', 'upsert', mapVentaToDB(venta));
+    if (ingredientesModificados.length > 0) {
+      this.enqueueMutation('ingredientes', 'upsert', ingredientesModificados.map(mapIngredienteToDB));
+    }
+    if (recetasModificadas.length > 0) {
+      this.enqueueMutation('recetas', 'upsert', recetasModificadas.map(mapRecetaToDB));
     }
 
     return ventas;
   }
 
   async deleteVenta(id: string): Promise<RegistroVentas[]> {
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('registros_ventas').delete().eq('id', id);
-      } catch (err) {
-        console.error('Error borrando venta en Supabase:', err);
-      }
-    }
-
-    const ventas = await this.getVentas();
+    const ventas = this.getLocal<RegistroVentas[]>(KEYS.VENTAS, []);
     const ventaToDelete = ventas.find(v => v.id === id);
     const filtradas = ventas.filter(v => v.id !== id);
-    this.set(KEYS.VENTAS, filtradas);
+    this.setLocal(KEYS.VENTAS, filtradas);
+
+    const recetas = [...this.getLocal<Receta[]>(KEYS.RECETAS, [])];
+    const ingredientes = [...this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, [])];
+    const ingredientesModificados: Ingrediente[] = [];
+    const recetasModificadas: Receta[] = [];
 
     if (ventaToDelete) {
-      const recetas = await this.getRecetas();
-      const ingredientes = await this.getIngredientes();
       const resultDevolucion: { [id: string]: number } = {};
       const devolucionRecetas: { [id: string]: number } = {};
 
@@ -1040,7 +1537,7 @@ class LocalDatabase {
           return;
         }
 
-        const scaleFactor = qty / rec.cantidadRendimiento;
+        const scaleFactor = qty / (rec.cantidadRendimiento || 1);
 
         rec.ingredientes.forEach(item => {
           const qtyNeeded = item.cantidadRequerida * scaleFactor;
@@ -1065,9 +1562,12 @@ class LocalDatabase {
       for (const ingId of Object.keys(resultDevolucion)) {
         const ingIdx = ingredientes.findIndex(i => i.id === ingId);
         if (ingIdx >= 0) {
-          const ing = ingredientes[ingIdx];
-          ing.stockActual = (ing.stockActual || 0) + resultDevolucion[ingId];
-          await this.saveIngrediente(ing);
+          ingredientes[ingIdx] = {
+            ...ingredientes[ingIdx],
+            stockActual: (ingredientes[ingIdx].stockActual || 0) + resultDevolucion[ingId],
+            ultimaActualizacion: new Date().toISOString()
+          };
+          ingredientesModificados.push(ingredientes[ingIdx]);
         }
       }
 
@@ -1075,11 +1575,25 @@ class LocalDatabase {
       for (const recId of Object.keys(devolucionRecetas)) {
         const recIdx = recetas.findIndex(r => r.id === recId);
         if (recIdx >= 0) {
-          const rec = recetas[recIdx];
-          rec.stockActual = (rec.stockActual || 0) + devolucionRecetas[recId];
-          await this.saveReceta(rec);
+          recetas[recIdx] = {
+            ...recetas[recIdx],
+            stockActual: (recetas[recIdx].stockActual || 0) + devolucionRecetas[recId],
+            ultimaActualizacion: new Date().toISOString()
+          };
+          recetasModificadas.push(recetas[recIdx]);
         }
       }
+
+      this.setLocal(KEYS.INGREDIENTES, ingredientes);
+      this.setLocal(KEYS.RECETAS, recetas);
+    }
+
+    this.enqueueMutation('registros_ventas', 'delete', { id });
+    if (ingredientesModificados.length > 0) {
+      this.enqueueMutation('ingredientes', 'upsert', ingredientesModificados.map(mapIngredienteToDB));
+    }
+    if (recetasModificadas.length > 0) {
+      this.enqueueMutation('recetas', 'upsert', recetasModificadas.map(mapRecetaToDB));
     }
 
     return filtradas;
@@ -1097,21 +1611,22 @@ class LocalDatabase {
 
   /**
    * Calcula de forma recursiva y profunda el costo de una Receta (soportando sub-recetas)
+   * 100% síncrono e instantáneo en memoria local
    */
-  async calcularCostoReceta(recetaId: string, recetasDisponibles?: Receta[]): Promise<number> {
-    const recetas = recetasDisponibles || await this.getRecetas();
+  async calcularCostoReceta(recetaId: string, recetasDisponibles?: Receta[], ingredientesDisponibles?: Ingrediente[]): Promise<number> {
+    const recetas = recetasDisponibles || this.getLocal<Receta[]>(KEYS.RECETAS, []);
     const receta = recetas.find(r => r.id === recetaId);
     if (!receta) return 0;
 
-    const ingredientes = await this.getIngredientes();
+    const ingredientes = ingredientesDisponibles || this.getLocal<Ingrediente[]>(KEYS.INGREDIENTES, []);
     let costoTotalLote = 0;
 
     for (const item of receta.ingredientes) {
       if (item.esRecetaAnidada) {
         const subReceta = recetas.find(r => r.id === item.ingredienteId);
         if (subReceta) {
-          const costoSubLote = await this.calcularCostoReceta(subReceta.id, recetas);
-          let cantidadLote = subReceta.cantidadRendimiento;
+          const costoSubLote = await this.calcularCostoReceta(subReceta.id, recetas, ingredientes);
+          const cantidadLote = subReceta.cantidadRendimiento || 1;
           const costoPorUnidadSub = costoSubLote / cantidadLote;
           costoTotalLote += costoPorUnidadSub * item.cantidadRequerida;
         }

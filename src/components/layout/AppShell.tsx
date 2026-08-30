@@ -23,12 +23,26 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
   const [comprasExpanded, setComprasExpanded] = useState(() => 
     location.pathname.startsWith('/compras')
   );
+  const [isOnlineState, setIsOnlineState] = useState<boolean>(() => 
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
 
   useEffect(() => {
     if (location.pathname.startsWith('/compras')) {
       setComprasExpanded(true);
     }
   }, [location.pathname]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnlineState(true);
+    const handleOffline = () => setIsOnlineState(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const isAdmin = user?.rol === 'admin';
   const pathname = location.pathname;
@@ -52,6 +66,26 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
             style={{ maxWidth: '80%', height: 'auto', display: 'block', margin: '0 auto' }}
           />
         </div>
+
+        {/* Indicador de Modo Offline si no hay internet */}
+        {!isOnlineState && (
+          <div style={{
+            margin: '0 16px 12px',
+            padding: '6px 10px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(234, 179, 8, 0.12)',
+            border: '1px solid rgba(234, 179, 8, 0.25)',
+            color: '#facc15',
+            fontSize: '11px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#facc15', flexShrink: 0 }} />
+            <span>Modo Offline (Auto-Sync activo)</span>
+          </div>
+        )}
 
         {/* Resumen General */}
         <button

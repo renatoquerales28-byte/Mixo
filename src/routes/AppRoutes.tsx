@@ -20,18 +20,37 @@ export const AppRoutes: React.FC = () => {
     return (saved as 'dark' | 'light') || 'dark';
   });
 
-  const [config, setConfig] = useState<ConfiguracionCostos | null>(null);
+  const [config, setConfig] = useState<ConfiguracionCostos | null>(() => {
+    try {
+      const saved = localStorage.getItem('mixo_configuracion');
+      return saved ? JSON.parse(saved) : {
+        alquiler: 1200.0,
+        serviciosPublicos: 450.0,
+        nominaAdministrativa: 1800.0,
+        otrosGastos: 250.0,
+        platosProyectadosMensuales: 2500,
+        factorCondimentoGlobal: 2.0,
+        margenAlimentosObjetivo: 30.0,
+        porcentajeImpuestos: 8.0
+      };
+    } catch {
+      return null;
+    }
+  });
   const [loadError, setLoadError] = useState(false);
 
-  const fetchConfig = async () => {
-    const current = await db.getConfiguracion();
-    setConfig(current);
-  };
-
   useEffect(() => {
-    fetchConfig();
-    const timeout = setTimeout(() => setLoadError(true), 8000);
-    return () => clearTimeout(timeout);
+    let isMounted = true;
+    db.getConfiguracion().then(current => {
+      if (isMounted) setConfig(current);
+    });
+    const timeout = setTimeout(() => {
+      if (isMounted) setLoadError(true);
+    }, 8000);
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {

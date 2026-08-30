@@ -30,6 +30,7 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
   const loadCatalogos = async () => {
     const listRec = await db.getRecetas();
     const listVen = await db.getVentas();
+    const listIng = await db.getIngredientes();
     const platosFinales = listRec.filter(r => !r.esSubReceta);
     setRecetas(platosFinales);
     setVentas(listVen);
@@ -41,10 +42,10 @@ export const VentasTab: React.FC<VentasTabProps> = ({ onRefresh }) => {
       precioMenu: r.precioVentaMenu !== undefined ? r.precioVentaMenu : ''
     })));
 
-    // Calcular costos de recetas
+    // Calcular costos de recetas de forma ultra rápida en memoria
     const costosMap: { [id: string]: number } = {};
     for (const r of platosFinales) {
-      costosMap[r.id] = await db.calcularCostoReceta(r.id, listRec);
+      costosMap[r.id] = await db.calcularCostoReceta(r.id, listRec, listIng);
     }
     setRecetaCostos(costosMap);
   };
