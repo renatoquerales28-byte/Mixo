@@ -32,9 +32,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ theme, onToggleTheme }) =>
     const result = await login(email, password);
     setIsSubmitting(false);
 
-    if (result.success) {
-      showToast('¡Bienvenido a Mixo!', 'success');
-    } else {
+    if (!result.success) {
       showToast(result.error || 'Error al iniciar sesión', 'error');
     }
   };

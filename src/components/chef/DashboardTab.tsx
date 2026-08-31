@@ -119,7 +119,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       <div className="grid-cols-2" style={{ gap: '16px' }}>
         {/* Alerta de Aumento de Costos */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Aumento de Costos en Platos</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('recetas')} style={{ fontSize: '12px' }}>
               Ver Recetario →
@@ -128,7 +128,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {desviaciones.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ ¡Excelente! Ningún plato ha registrado un aumento de costos en sus últimos lotes.
+                ¡Excelente! Ningún plato ha registrado un aumento de costos en sus últimos lotes.
               </p>
             ) : (
               desviaciones.map(item => (
@@ -152,7 +152,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         {/* Alertas de Costeo */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Falta Registrar Costo de Compra</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('insumos')} style={{ fontSize: '12px' }}>
               Ver Insumos →
@@ -161,7 +161,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {insumosSinCosto.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ Todos los insumos tienen su costo registrado correctamente.
+                Todos los insumos tienen su costo registrado correctamente.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -195,7 +195,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
       <div className="grid-cols-2" style={{ gap: '16px' }}>
         {/* Alerta de Stock Bajo */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Alertas de Stock Bajo</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('insumos')} style={{ fontSize: '12px' }}>
               Ver Inventario →
@@ -204,7 +204,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {insumosBajoStock.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ Todos los insumos tienen niveles de stock saludables.
+                Todos los insumos tienen niveles de stock saludables.
               </p>
             ) : (
               insumosBajoStock.slice(0, 3).map(ing => (
@@ -235,7 +235,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         {/* Alerta de Vencimiento */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Próximos a Vencer o Vencidos</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('insumos')} style={{ fontSize: '12px' }}>
               Ver Inventario →
@@ -244,7 +244,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {insumosVencimiento.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ No hay insumos vencidos ni próximos a vencer.
+                No hay insumos vencidos ni próximos a vencer.
               </p>
             ) : (
               insumosVencimiento.slice(0, 3).map(item => {
@@ -291,7 +291,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
         
         {/* Tareas de Producción */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Tareas de Producción para Hoy</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('lotes')} style={{ fontSize: '12px' }}>
               Cocinar Lote →
@@ -300,7 +300,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {recetasBajoStock.length === 0 ? (
               <p className="text-secondary" style={{ textAlign: 'center', padding: '20px', color: '#81c784' }}>
-                ✓ Todo preparado. Tu stock de producción está completo.
+                Todo preparado. Tu stock de producción está completo.
               </p>
             ) : (
               recetasBajoStock.slice(0, 3).map(rec => {
@@ -336,7 +336,7 @@ export const DashboardTab: React.FC<DashboardTabProps> = ({
 
         {/* Historial de Cocina */}
         <div className="mixo-card">
-          <div className="flex-row-between" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '12px', marginBottom: '12px' }}>
+          <div className="flex-row-between" style={{ marginBottom: '12px' }}>
             <h3>Últimos Lotes Producidos</h3>
             <button className="btn btn-action" onClick={() => onSwitchTab('lotes')} style={{ fontSize: '12px' }}>
               Ver Producción →
