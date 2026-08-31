@@ -6,7 +6,7 @@ import logoNegro from '../../assets/logo-negro.svg';
 import {
   LayoutDashboard, BookOpen, FlameKindling, CalendarDays,
   TrendingUp, ShoppingCart, Receipt, Truck, ClipboardList,
-  BarChart2, Package, Trash2, Settings, LogOut,
+  BarChart2, Package, Trash2, Settings, WifiOff,
   Sun, Moon, ShieldCheck, ChefHat, Users
 } from 'lucide-react';
 
@@ -67,23 +67,11 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
           />
         </div>
 
-        {/* Indicador de Modo Offline si no hay internet */}
+        {/* Indicador Offline */}
         {!isOnlineState && (
-          <div style={{
-            margin: '0 16px 12px',
-            padding: '6px 10px',
-            borderRadius: '8px',
-            backgroundColor: 'rgba(234, 179, 8, 0.12)',
-            border: '1px solid rgba(234, 179, 8, 0.25)',
-            color: '#facc15',
-            fontSize: '11px',
-            fontWeight: 500,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#facc15', flexShrink: 0 }} />
-            <span>Modo Offline (Auto-Sync activo)</span>
+          <div className="sidebar-offline-badge" title="Sin conexión a internet (Modo Offline)">
+            <WifiOff size={16} style={{ marginRight: '10px', opacity: 0.85, flexShrink: 0 }} />
+            <span>Offline</span>
           </div>
         )}
 
@@ -247,7 +235,6 @@ export const AppShell: React.FC<AppShellProps> = ({ theme, onToggleTheme }) => {
             onClick={logout}
             title="Cerrar sesión"
           >
-            <LogOut size={14} />
             <span>Cerrar Sesión</span>
           </button>
         </div>
